@@ -100,7 +100,7 @@ def pregame_advanced_features(shots, window=20, goalie_prior_minutes_equiv_games
                     f"{situation}_{direction}": float(game.loc[
                         (game.situation == situation) &
                         (game.team == (team if direction == "for" else opp)), "xg"].sum())
-                    for situation in ("even","power_play") for direction in ("for","against")
+                    for situation in ("even","power_play","penalty_kill") for direction in ("for","against")
                 }
             # Goalie GSAx is retained as a separate historical table for future
             # timestamped starter integration. Do not leak actual game goalie into features.
