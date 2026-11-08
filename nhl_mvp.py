@@ -1,0 +1,47 @@
+"""NHL historical game downloader and leakage-safe Poisson baseline."""
+import argparse,json,time
+from pathlib import Path
+import numpy as np
+import pandas as pd
+import requests
+from scipy.stats import poisson,skellam
+TEAMS="ANA BOS BUF CAR CBJ CGY CHI COL DAL DET EDM FLA LAK MIN MTL NJD NSH NYI NYR OTT PHI PIT SEA SJS STL TBL TOR UTA VAN VGK WPG WSH".split()
+def download(seasons,out):
+    out=Path(out);out.mkdir(parents=True,exist_ok=True);games={};session=requests.Session()
+    for season in seasons:
+        for team in TEAMS:
+            url=f"https://api-web.nhle.com/v1/club-schedule-season/{team}/{season}"
+            for attempt in range(4):
+                try:
+                    response=session.get(url,timeout=40);response.raise_for_status();payload=response.json();break
+                except requests.RequestException:
+                    if attempt==3:raise
+                    time.sleep(2**attempt)
+            for g in payload.get("games",[]):
+                if g.get("gameType")!=2 or g.get("gameState") not in ("FINAL","OFF"):continue
+                h,a=g.get("homeTeam",{}),g.get("awayTeam",{})
+                if "score" not in h or "score" not in a:continue
+                games[g["id"]]={"game_id":g["id"],"date":g["gameDate"],"season":str(season),"home":h["abbrev"],"away":a["abbrev"],"home_goals":h["score"],"away_goals":a["score"],"home_win":int(h["score"]>a["score"])}
+            time.sleep(.05)
+        print(f"Season {season}: {len(games)} unique games",flush=True)
+    df=pd.DataFrame(games.values())
+    if df.empty:raise RuntimeError("No completed NHL games returned")
+    df.sort_values(["date","game_id"]).to_csv(out/"games.csv",index=False)
+    print(f"Saved {len(df)} historical games",flush=True)
+def pregame_features(games,lookback=20,prior_games=12):
+    games=games.sort_values(["date","game_id"]);hist=[];rows=[]
+    for date,day in games.groupby("date",sort=True):
+        for _,g in day.iterrows():
+            def rates(team):
+                prior=[(gf,ga) for t,gf,ga in hist if t==team][-lookback:]
+                n=len(prior)
+                return ((sum(x for x,_ in prior)+prior_games*3)/(n+prior_games),(sum(x for _,x in prior)+prior_games*3)/(n+prior_games))
+            hf,ha=rates(g.home);af,aa=rates(g.away)
+            lh=float(np.clip(hf*aa/3*1.045,.7,6));la=float(np.clip(af*ha/3/1.045,.7,6))
+            p=float(skellam.sf(0,lh,la)+.5*skellam.pmf(0,lh,la))
+            rows.append(dict(g.to_dict(),p_home=p,p_over_5_5=float(poisson.sf(5,lh+la)),p_over_6_5=float(poisson.sf(6,lh+la))))
+        for _,g in day.iterrows():
+            hist.extend([(g.home,g.home_goals,g.away_goals),(g.away,g.away_goals,g.home_goals)])
+    return pd.DataFrame(rows)
+if __name__=="__main__":
+    p=argparse.ArgumentParser();p.add_argument("--out",default="data");p.add_argument("--seasons",nargs="+",default=["20212022","20222023","20232024","20242025","20252026"]);a=p.parse_args();download(a.seasons,a.out)
