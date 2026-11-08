@@ -25,6 +25,16 @@ def main():
         archive = root / "shots.zip"
         archive.write_bytes(response.content)
         raw = load_shots(archive)
+        # MoneyPuck stores game_id as 20001; NHL API uses 2024020001.
+        # Prefix the starting season (2024) and preserve the 5-digit game suffix.
+        raw["game_id"] = int(season) * 1000000 + pd.to_numeric(raw.game_id, errors="raise").astype("int64")
+        print("MONEYPUCK_SCHEMA=" + json.dumps({
+            "available_fields": [x for x in raw.columns if x in
+                {"team","xGoal","isGoal","goalieIdForShot","homeTeamCode",
+                 "awayTeamCode","homeSkatersOnIce","awaySkatersOnIce",
+                 "shotOnEmptyNet","shotWasOnGoal","game_id"}],
+            "converted_ids": raw.game_id.head(3).tolist()
+        }), flush=True)
         # Shot archive may include playoff games; retain completed regular-season schedule only.
         ids = set(games.game_id.astype(int))
         print("GAME_ID_DIAGNOSTICS=" + json.dumps({"schedule_examples": games.game_id.head(5).astype(str).tolist(), "shot_examples": raw.game_id.head(5).astype(str).tolist(), "shot_columns": list(raw.columns)[:35], "shot_rows": len(raw)}), flush=True)
