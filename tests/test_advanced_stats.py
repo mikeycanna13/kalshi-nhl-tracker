@@ -1,7 +1,7 @@
 """Offline synthetic tests: no live downloads or Railway restarts."""
 import unittest
 import pandas as pd
-from advanced_stats import pregame_advanced_features
+from advanced_stats import pregame_advanced_features, normalize
 
 def game(game_id,date,home_xg,away_xg):
     return [
@@ -55,6 +55,22 @@ class AdvancedStatsTests(unittest.TestCase):
         row=features.loc[features.game_id==2].iloc[0]
         self.assertAlmostEqual(row.home_even_xg_for_pg,3.0/4)
         self.assertAlmostEqual(row.home_even_xg_against_pg,3.0/4)
+
+    def test_official_moneypuck_home_away_schema_and_schedule(self):
+        shots=pd.DataFrame([
+            dict(game_id=2025020001,team="HOME",homeTeamCode="NYR",awayTeamCode="NJD",
+                 xGoal=.2,goal=0,goalieIdForShot="away_goalie",
+                 homeSkatersOnIce=5,awaySkatersOnIce=5),
+            dict(game_id=2025020001,team="AWAY",homeTeamCode="NYR",awayTeamCode="NJD",
+                 xGoal=.3,goal=1,goalieIdForShot="home_goalie",
+                 homeSkatersOnIce=5,awaySkatersOnIce=5)])
+        schedule=pd.DataFrame([dict(game_id=2025020001,date="2025-10-07")])
+        normalized=normalize(shots,game_dates=schedule)
+        self.assertEqual(normalized.team.tolist(),["NYR","NJD"])
+        self.assertEqual(normalized.opponent.tolist(),["NJD","NYR"])
+        self.assertEqual(str(normalized.date.iloc[0].date()),"2025-10-07")
+        with self.assertRaises(ValueError):
+            normalize(shots)
 
     def test_invalid_probabilities_rejected(self):
         data=pd.DataFrame(game(1,"2025-10-01",1.5,.2))
