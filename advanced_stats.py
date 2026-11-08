@@ -55,7 +55,8 @@ def normalize(raw, game_dates=None):
         if raw.date.isna().any():
             raise ValueError("Schedule is missing dates for shot games")
     if "team" in raw.columns and raw["team"].isin(["HOME", "AWAY"]).all():
-        raw["teamCode"] = np.where(raw["team"] == "HOME", raw["homeTeamCode"], raw["awayTeamCode"])\n        raw = raw.drop(columns=["team"])
+        raw["teamCode"] = np.where(raw["team"] == "HOME", raw["homeTeamCode"], raw["awayTeamCode"])
+        raw = raw.drop(columns=["team"])
     if not any(col in raw.columns for col in ALIASES["opponent"]):
         if "teamCode" not in raw.columns:
             raise ValueError("Cannot infer opponent without team codes")
