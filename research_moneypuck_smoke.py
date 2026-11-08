@@ -27,6 +27,7 @@ def main():
         raw = load_shots(archive)
         # Shot archive may include playoff games; retain completed regular-season schedule only.
         ids = set(games.game_id.astype(int))
+        print("GAME_ID_DIAGNOSTICS=" + json.dumps({"schedule_examples": games.game_id.head(5).astype(str).tolist(), "shot_examples": raw.game_id.head(5).astype(str).tolist(), "shot_columns": list(raw.columns)[:35], "shot_rows": len(raw)}), flush=True)
         raw = raw[pd.to_numeric(raw.game_id, errors="coerce").isin(ids)].copy()
         if raw.empty:
             raise ValueError("No matching regular-season shots")
