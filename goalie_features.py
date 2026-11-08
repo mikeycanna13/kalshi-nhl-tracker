@@ -9,8 +9,8 @@ from pathlib import Path
 import pandas as pd
 from advanced_stats import load_shots, normalize
 
-def goalie_snapshots(raw, prior_games=12):
-    d=normalize(raw)
+def goalie_snapshots(raw, prior_games=12, game_dates=None):
+    d=normalize(raw, game_dates=game_dates)
     history=defaultdict(lambda: [0.,0.,0])
     output=[]
     for date,day in d.groupby("date",sort=True):
@@ -75,10 +75,10 @@ def attach_projected_goalies(games, projections, snapshots):
 
 if __name__=="__main__":
     parser=argparse.ArgumentParser()
-    parser.add_argument("--shots",required=True)
+    parser.add_argument("--shots",required=True)\n    parser.add_argument("--games",help="Schedule CSV with game_id and date for MoneyPuck shots")
     parser.add_argument("--out",default="data/goalie_snapshots.csv")
     args=parser.parse_args()
     out=Path(args.out);out.parent.mkdir(parents=True,exist_ok=True)
-    snapshots=goalie_snapshots(load_shots(args.shots))
+    schedule=pd.read_csv(args.games) if args.games else None\n    snapshots=goalie_snapshots(load_shots(args.shots), game_dates=schedule)
     snapshots.to_csv(out,index=False)
     print(f"Saved {len(snapshots)} historical pregame goalie snapshots to {out}")
