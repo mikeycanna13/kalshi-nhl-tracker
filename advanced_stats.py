@@ -16,7 +16,7 @@ import pandas as pd
 ALIASES = {
     "game_id": ("game_id", "gameId"),
     "date": ("game_date", "gameDate", "date"),
-    "team": ("teamCode", "team", "shootingTeam"),
+    "team": ("teamCode", "shootingTeam", "team"),
     "opponent": ("opposingTeam", "opponent", "opposingTeamCode"),
     "xg": ("xGoal", "xGoals", "xG"),
     "goalie": ("goalieIdForShot", "goalieId", "goalie_id"),
@@ -38,7 +38,7 @@ def load_shots(path):
                 return pd.read_csv(f, low_memory=False)
     return pd.read_csv(path, low_memory=False)
 
-def normalize(raw):
+def normalize(raw, game_dates=None):\n    # Official MoneyPuck shots use team=HOME/AWAY and often omit game date.\n    raw = raw.copy()\n    if not any(col in raw.columns for col in ALIASES["date"]):\n        if game_dates is None:\n            raise ValueError("MoneyPuck shots lack dates: provide --games with game_id and date")\n        mapping = game_dates.copy()\n        if "game_id" not in mapping.columns or "date" not in mapping.columns:\n            raise ValueError("Game schedule must contain game_id and date")\n        mapping["game_id"] = pd.to_numeric(mapping.game_id, errors="raise").astype("int64")\n        if mapping.duplicated("game_id").any():\n            raise ValueError("Duplicate game IDs in schedule")\n        raw["game_id"] = pd.to_numeric(raw.game_id, errors="raise").astype("int64")\n        raw = raw.merge(mapping[["game_id", "date"]], on="game_id", how="left", validate="many_to_one")\n        if raw.date.isna().any():\n            raise ValueError("Schedule is missing dates for shot games")\n    if "team" in raw.columns and raw["team"].isin(["HOME", "AWAY"]).all():\n        raw["teamCode"] = np.where(raw["team"] == "HOME", raw["homeTeamCode"], raw["awayTeamCode"])\n    if not any(col in raw.columns for col in ALIASES["opponent"]):\n        if "teamCode" not in raw.columns:\n            raise ValueError("Cannot infer opponent without team codes")\n        raw["opposingTeam"] = np.where(raw["teamCode"] == raw["homeTeamCode"], raw["awayTeamCode"], raw["homeTeamCode"])
     columns = {}
     for name, candidates in ALIASES.items():
         hit = next((c for c in candidates if c in raw.columns), None)
@@ -47,7 +47,7 @@ def normalize(raw):
                              f"Available={list(raw.columns)}")
         columns[name] = hit
     d = raw.rename(columns={v:k for k,v in columns.items()})[list(columns)].copy()
-    d["date"] = pd.to_datetime(d.date, errors="raise").dt.normalize()
+    dates = d["date"].astype(str)\n    if dates.str.fullmatch(r"\\d{8}").all():\n        d["date"] = pd.to_datetime(dates, format="%Y%m%d", errors="raise")\n    else:\n        d["date"] = pd.to_datetime(d.date, errors="raise").dt.normalize()
     d["game_id"] = pd.to_numeric(d.game_id, errors="raise").astype("int64")
     d["xg"] = pd.to_numeric(d.xg, errors="raise")
     d["goal"] = pd.to_numeric(d.goal, errors="raise")
@@ -57,7 +57,7 @@ def normalize(raw):
         raise ValueError("Missing required shot observations")
     if not d.xg.between(0,1).all() or not d.goal.isin([0,1]).all():
         raise ValueError("Invalid shot probability or goal indicator")
-    if not (d.team.isin(d.home) | d.team.isin(d.away)).all():
+    if not ((d.team == d.home) | (d.team == d.away)).all():
         raise ValueError("Shot team does not match home or away team")
     # 4v4 and 3v3 are NOT 5v5. Do not contaminate 5v5 xG with OT.
     is_5v5 = (d.home_skaters == 5) & (d.away_skaters == 5)
@@ -71,14 +71,14 @@ def normalize(raw):
     d["goalie"] = d.goalie.astype("string")
     return d
 
-def pregame_advanced_features(shots, window=20, goalie_prior_minutes_equiv_games=12):
+def pregame_advanced_features(shots, window=20, goalie_prior_minutes_equiv_games=12, game_dates=None):
     """One row per game. Daily batch updates avoid leakage from same-day games.
 
     Goalie features describe observed historical goalie quality of the prior
     game's goalie pool, NOT a claimed confirmed starter. For starter-specific
     predictions, a separate timestamped starter feed is required.
     """
-    d = normalize(shots)
+    d = normalize(shots, game_dates=game_dates)
     teams = defaultdict(lambda: deque(maxlen=window))
     goalies = defaultdict(lambda: [0.0, 0.0, 0])  # xGA, GA, observed games
     rows = []
@@ -136,11 +136,11 @@ def pregame_advanced_features(shots, window=20, goalie_prior_minutes_equiv_games
 
 def main():
     parser=argparse.ArgumentParser()
-    parser.add_argument("--shots",required=True,help="Approved MoneyPuck shot CSV or ZIP already downloaded")
+    parser.add_argument("--shots",required=True,help="Approved MoneyPuck shot CSV or ZIP already downloaded")\n    parser.add_argument("--games",help="Schedule CSV containing game_id and date; required if shots lack dates")
     parser.add_argument("--out",default="data/advanced_features.csv")
     parser.add_argument("--goalies-out",default="data/goalie_history.csv")
     args=parser.parse_args()
-    features, goalies = pregame_advanced_features(load_shots(args.shots))
+    schedule = pd.read_csv(args.games) if args.games else None\n    features, goalies = pregame_advanced_features(load_shots(args.shots), game_dates=schedule)
     for name, frame in ((args.out,features),(args.goalies_out,goalies)):
         path=Path(name)
         path.parent.mkdir(parents=True,exist_ok=True)
