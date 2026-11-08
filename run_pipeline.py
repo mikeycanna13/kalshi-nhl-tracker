@@ -21,3 +21,11 @@ improved_predictions.to_csv('results/walkforward_predictions.csv',index=False)
 print('WALKFORWARD_REPORT_BEGIN',flush=True)
 print(json.dumps(improved_report,indent=2),flush=True)
 print('WALKFORWARD_REPORT_END',flush=True)
+
+from independent_model import evaluate as evaluate_independent
+independent_report,independent_predictions=evaluate_independent(games)
+Path("results/independent_metrics.json").write_text(json.dumps(independent_report,indent=2))
+independent_predictions.to_csv("results/independent_predictions.csv",index=False)
+print("INDEPENDENT_REPORT_BEGIN",flush=True)
+print(json.dumps(independent_report,indent=2),flush=True)
+print("INDEPENDENT_REPORT_END",flush=True)
