@@ -59,10 +59,15 @@ def normalize(raw):
         raise ValueError("Invalid shot probability or goal indicator")
     if not (d.team.isin(d.home) | d.team.isin(d.away)).all():
         raise ValueError("Shot team does not match home or away team")
-    d["situation"] = np.where(
-        d.home_skaters == d.away_skaters, "even",
-        np.where(((d.team == d.home) & (d.home_skaters > d.away_skaters)) |
-                 ((d.team == d.away) & (d.away_skaters > d.home_skaters)), "power_play", "shorthanded"))
+    # 4v4 and 3v3 are NOT 5v5. Do not contaminate 5v5 xG with OT.
+    is_5v5 = (d.home_skaters == 5) & (d.away_skaters == 5)
+    shooter_advantage = (((d.team == d.home) & (d.home_skaters > d.away_skaters)) |
+                         ((d.team == d.away) & (d.away_skaters > d.home_skaters)))
+    shooter_disadvantage = (((d.team == d.home) & (d.home_skaters < d.away_skaters)) |
+                            ((d.team == d.away) & (d.away_skaters < d.home_skaters)))
+    d["situation"] = np.select(
+        [is_5v5, shooter_advantage, shooter_disadvantage],
+        ["even", "power_play", "shorthanded"], default="other")
     d["goalie"] = d.goalie.astype("string")
     return d
 
