@@ -64,7 +64,10 @@ def attach_projected_goalies(games, projections, snapshots):
     p=p.merge(g,on="game_id",validate="many_to_one")
     if not (p.prediction_date<=p.date).all():
         raise ValueError("Starter projection timestamp after game date")
-    # Reject projections that are not dated or duplicate a game/starter.\n    if p.prediction_date.isna().any():\n        raise ValueError("Missing starter projection date")\n    # Snapshot must be strictly prior to prediction date, never same-day outcomes.
+    # Reject projections that are not dated or duplicate a game/starter.
+    if p.prediction_date.isna().any():
+        raise ValueError("Missing starter projection date")
+    # Snapshot must be strictly prior to prediction date, never same-day outcomes.
     s=snapshots.rename(columns={"snapshot_date":"prediction_date"})
     p=p.merge(s[["prediction_date","goalie_id","shrunk_gsax_per_game"]],
               on=["prediction_date","goalie_id"],how="left",validate="many_to_one")
@@ -75,10 +78,12 @@ def attach_projected_goalies(games, projections, snapshots):
 
 if __name__=="__main__":
     parser=argparse.ArgumentParser()
-    parser.add_argument("--shots",required=True)\n    parser.add_argument("--games",help="Schedule CSV with game_id and date for MoneyPuck shots")
+    parser.add_argument("--shots",required=True)
+    parser.add_argument("--games",help="Schedule CSV with game_id and date for MoneyPuck shots")
     parser.add_argument("--out",default="data/goalie_snapshots.csv")
     args=parser.parse_args()
     out=Path(args.out);out.parent.mkdir(parents=True,exist_ok=True)
-    schedule=pd.read_csv(args.games) if args.games else None\n    snapshots=goalie_snapshots(load_shots(args.shots), game_dates=schedule)
+    schedule=pd.read_csv(args.games) if args.games else None
+    snapshots=goalie_snapshots(load_shots(args.shots), game_dates=schedule)
     snapshots.to_csv(out,index=False)
     print(f"Saved {len(snapshots)} historical pregame goalie snapshots to {out}")
