@@ -1,0 +1,24 @@
+name: NHL real MoneyPuck ingestion (research)
+on:
+  push:
+    branches:
+      - research/nhl-model-benchmarks
+    paths:
+      - research_moneypuck_smoke.py
+      - .github/workflows/moneypuck-real-data.yml
+  workflow_dispatch:
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Validate actual MoneyPuck season against NHL schedule
+        run: python research_moneypuck_smoke.py
+        env:
+          SHOT_SEASON: '2024'
