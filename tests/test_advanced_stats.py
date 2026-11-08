@@ -28,6 +28,22 @@ class AdvancedStatsTests(unittest.TestCase):
         features,_=pregame_advanced_features(data)
         self.assertTrue((features.home_advanced_games==0).all())
 
+    def test_special_teams_from_team_perspective(self):
+        # NYR has PP, NJD has PK; the next day's pregame features must
+        # attribute the NYR PP chance to NJD PK xGA, not NJD PP xGA.
+        first=game(1,"2025-10-01",.7,.1)
+        first[0]["homeSkatersOnIce"]=5
+        first[0]["awaySkatersOnIce"]=4
+        first[1]["homeSkatersOnIce"]=5
+        first[1]["awaySkatersOnIce"]=4
+        later=game(2,"2025-10-02",.2,.3)
+        features,_=pregame_advanced_features(pd.DataFrame(first+later))
+        row=features.loc[features.game_id==2].iloc[0]
+        # Shrinkage prior 3.0, historical one-game xG contribution .7.
+        self.assertAlmostEqual(row.away_penalty_kill_xg_against_pg,(3.0+.7)/4)
+        self.assertAlmostEqual(row.away_power_play_xg_against_pg,3.0/4)
+        self.assertAlmostEqual(row.home_power_play_xg_for_pg,(3.0+.7)/4)
+
     def test_invalid_probabilities_rejected(self):
         data=pd.DataFrame(game(1,"2025-10-01",1.5,.2))
         with self.assertRaises(ValueError):
