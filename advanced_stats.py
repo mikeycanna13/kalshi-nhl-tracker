@@ -96,11 +96,17 @@ def pregame_advanced_features(shots, window=20, goalie_prior_minutes_equiv_games
             rows.append(row)
             update = {"game_id": game_id, "home": home, "away": away, "teams": {}, "goalies": {}}
             for team,opp in ((home,away),(away,home)):
+                # Interpret manpower from the perspective of the team, not the shooter.
+                # Opponent PP shots are our PK xGA, not our PP xGA.
+                team_shots = game[game.team == team]
+                opp_shots = game[game.team == opp]
                 update["teams"][team] = {
-                    f"{situation}_{direction}": float(game.loc[
-                        (game.situation == situation) &
-                        (game.team == (team if direction == "for" else opp)), "xg"].sum())
-                    for situation in ("even","power_play","penalty_kill") for direction in ("for","against")
+                    "even_for": float(team_shots.loc[team_shots.situation == "even", "xg"].sum()),
+                    "even_against": float(opp_shots.loc[opp_shots.situation == "even", "xg"].sum()),
+                    "power_play_for": float(team_shots.loc[team_shots.situation == "power_play", "xg"].sum()),
+                    "power_play_against": float(opp_shots.loc[opp_shots.situation == "shorthanded", "xg"].sum()),
+                    "penalty_kill_for": float(team_shots.loc[team_shots.situation == "shorthanded", "xg"].sum()),
+                    "penalty_kill_against": float(opp_shots.loc[opp_shots.situation == "power_play", "xg"].sum()),
                 }
             # Goalie GSAx is retained as a separate historical table for future
             # timestamped starter integration. Do not leak actual game goalie into features.
