@@ -71,10 +71,11 @@ def attach_projected_goalies(games, projections, snapshots):
     s=snapshots.rename(columns={"snapshot_date":"prediction_date"})
     p=p.merge(s[["prediction_date","goalie_id","shrunk_gsax_per_game"]],
               on=["prediction_date","goalie_id"],how="left",validate="many_to_one")
-    if p.shrunk_gsax_per_game.isna().any():
-        raise ValueError("Missing pregame goalie history; explicitly handle unknown goalies")
-    p["weighted_gsax"]=p.probability*p.shrunk_gsax_per_game
-    return p.groupby("game_id",as_index=False).weighted_gsax.sum()
+    p["unknown_goalie"] = p.shrunk_gsax_per_game.isna().astype(int)
+    p["shrunk_gsax_per_game"] = p.shrunk_gsax_per_game.fillna(0.0)
+    p["weighted_gsax"] = p.probability*p.shrunk_gsax_per_game
+    p["unknown_starter_probability"] = p.probability*p.unknown_goalie
+    return p.groupby("game_id",as_index=False)[["weighted_gsax","unknown_starter_probability"]].sum()
 
 if __name__=="__main__":
     parser=argparse.ArgumentParser()
