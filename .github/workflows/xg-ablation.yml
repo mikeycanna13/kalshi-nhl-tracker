@@ -1,0 +1,21 @@
+name: NHL real xG held-out ablation
+on:
+  push:
+    branches:
+      - research/nhl-model-benchmarks
+    paths:
+      - research_xg_ablation.py
+      - .github/workflows/xg-ablation.yml
+  workflow_dispatch:
+jobs:
+  ablation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python research_xg_ablation.py
