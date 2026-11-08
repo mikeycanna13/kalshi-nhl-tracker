@@ -6,8 +6,16 @@ import pandas as pd
 import requests
 from scipy.stats import poisson,skellam
 TEAMS="ANA BOS BUF CAR CBJ CGY CHI COL DAL DET EDM FLA LAK MIN MTL NJD NSH NYI NYR OTT PHI PIT SEA SJS STL TBL TOR UTA VAN VGK WPG WSH".split()
-def download(seasons,out):
-    out=Path(out);out.mkdir(parents=True,exist_ok=True);games={};session=requests.Session()
+def download(seasons,out,refresh=False):
+    out=Path(out);out.mkdir(parents=True,exist_ok=True)
+    cached=out/"games.csv"
+    if cached.exists() and not refresh:
+        previous=pd.read_csv(cached,dtype={"season":str})
+        present=set(previous.season.unique())
+        if set(seasons).issubset(present):
+            print(f"Using {len(previous)} cached historical games; pass --refresh to fetch new results",flush=True)
+            return
+    games={};session=requests.Session()
     for season in seasons:
         for team in TEAMS:
             url=f"https://api-web.nhle.com/v1/club-schedule-season/{team}/{season}"
@@ -44,4 +52,4 @@ def pregame_features(games,lookback=20,prior_games=12):
             hist.extend([(g.home,g.home_goals,g.away_goals),(g.away,g.away_goals,g.home_goals)])
     return pd.DataFrame(rows)
 if __name__=="__main__":
-    p=argparse.ArgumentParser();p.add_argument("--out",default="data");p.add_argument("--seasons",nargs="+",default=["20212022","20222023","20232024","20242025","20252026"]);a=p.parse_args();download(a.seasons,a.out)
+    p=argparse.ArgumentParser();p.add_argument("--out",default="data");p.add_argument("--seasons",nargs="+",default=["20212022","20222023","20232024","20242025","20252026"]);p.add_argument("--refresh",action="store_true");a=p.parse_args();download(a.seasons,a.out,a.refresh)
