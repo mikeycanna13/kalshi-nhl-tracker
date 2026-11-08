@@ -64,7 +64,7 @@ def attach_projected_goalies(games, projections, snapshots):
     p=p.merge(g,on="game_id",validate="many_to_one")
     if not (p.prediction_date<=p.date).all():
         raise ValueError("Starter projection timestamp after game date")
-    # Snapshot must be strictly prior to prediction date, never same-day outcomes.
+    # Reject projections that are not dated or duplicate a game/starter.\n    if p.prediction_date.isna().any():\n        raise ValueError("Missing starter projection date")\n    # Snapshot must be strictly prior to prediction date, never same-day outcomes.
     s=snapshots.rename(columns={"snapshot_date":"prediction_date"})
     p=p.merge(s[["prediction_date","goalie_id","shrunk_gsax_per_game"]],
               on=["prediction_date","goalie_id"],how="left",validate="many_to_one")
