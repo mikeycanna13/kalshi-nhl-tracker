@@ -87,7 +87,7 @@ def pregame_advanced_features(shots, window=20, goalie_prior_minutes_equiv_games
             for side, team, opp in (("home",home,away),("away",away,home)):
                 history = list(teams[team])
                 n = len(history)
-                for situation in ("even","power_play"):
+                for situation in ("even","power_play","penalty_kill"):
                     # xG per game; use prior observations only and a shrinkage prior.
                     for direction in ("for","against"):
                         values = [v[f"{situation}_{direction}"] for v in history]
