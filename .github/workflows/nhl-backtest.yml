@@ -1,0 +1,34 @@
+name: NHL historical backtest
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'nhl_mvp.py'
+      - 'backtest.py'
+      - 'run_pipeline.py'
+      - 'requirements.txt'
+      - '.github/workflows/nhl-backtest.yml'
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Download NHL history and evaluate holdout
+        run: python -u run_pipeline.py
+      - name: Upload evaluation artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nhl-backtest-output
+          path: |
+            data/games.csv
+            results/holdout_metrics.json
+            results/holdout_predictions.csv
+          if-no-files-found: warn
