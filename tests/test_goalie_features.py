@@ -26,6 +26,25 @@ class GoalieTests(unittest.TestCase):
         self.assertEqual(len(result),1)
         self.assertTrue(pd.notna(result.weighted_gsax.iloc[0]))
 
+    def test_unknown_goalie_uses_neutral_prior(self):
+        raw=pd.DataFrame(game(1,"2025-10-01",.1,.2)+game(2,"2025-10-02",.9,.8))
+        projections=pd.DataFrame([
+            dict(game_id=2,prediction_date="2025-10-02",goalie_id="rookie",probability=.75),
+            dict(game_id=2,prediction_date="2025-10-02",goalie_id="home_goalie",probability=.25)])
+        result=attach_projected_goalies(
+            pd.DataFrame([dict(game_id=2,date="2025-10-02")]),
+            projections,goalie_snapshots(raw))
+        self.assertAlmostEqual(result.unknown_starter_probability.iloc[0],.75)
+
+    def test_rejects_projection_after_game(self):
+        raw=pd.DataFrame(game(1,"2025-10-01",.1,.2)+game(2,"2025-10-02",.9,.8))
+        projections=pd.DataFrame([dict(game_id=2,prediction_date="2025-10-03",
+                                       goalie_id="home_goalie",probability=1.)])
+        with self.assertRaises(ValueError):
+            attach_projected_goalies(
+                pd.DataFrame([dict(game_id=2,date="2025-10-02")]),
+                projections,goalie_snapshots(raw))
+
     def test_rejects_probabilities_not_summing_to_one(self):
         raw=pd.DataFrame(game(1,"2025-10-01",.1,.2)+game(2,"2025-10-02",.9,.8))
         projections=pd.DataFrame([dict(game_id=2,prediction_date="2025-10-02",
