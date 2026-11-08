@@ -15,8 +15,18 @@ def fetch_boxscores(games,out,max_games=None):
     existing=pd.read_csv(out) if out.exists() else pd.DataFrame()
     done=set(existing.game_id.astype(int)) if not existing.empty else set()
     rows=[];session=requests.Session()
+    def checkpoint():
+        if not rows:return existing
+        combined=pd.concat([existing,pd.DataFrame(rows)],ignore_index=True)
+        combined=combined.drop_duplicates("game_id",keep="last").sort_values(["date","game_id"])
+        tmp=out.with_suffix(out.suffix+".tmp")
+        combined.to_csv(tmp,index=False)
+        tmp.replace(out)
+        return combined
+    failures=[]
     pending=games[~games.game_id.astype(int).isin(done)].sort_values(["date","game_id"])
     if max_games is not None:pending=pending.head(max_games)
+    last_saved=0
     for _,g in pending.iterrows():
         url=f"https://api-web.nhle.com/v1/gamecenter/{int(g.game_id)}/boxscore"
         try:
@@ -31,15 +41,15 @@ def fetch_boxscores(games,out,max_games=None):
                 "away_sog":float(ass),"home_goals":int(g.home_goals),
                 "away_goals":int(g.away_goals)})
         except (requests.RequestException,ValueError,TypeError) as e:
+            failures.append(int(g.game_id))
             print(f"SKIP {g.game_id}: {e}",flush=True)
-        if len(rows)%50==0 and rows:
-            print(f"Fetched {len(rows)} new boxscores",flush=True)
+        if len(rows)%50==0 and rows and len(rows)!=last_saved:
+            checkpoint()
+            last_saved=len(rows)
+            print(f"Fetched {len(rows)} new boxscores (checkpoint saved)",flush=True)
         time.sleep(.08)
-    fresh=pd.DataFrame(rows)
-    merged=pd.concat([existing,fresh],ignore_index=True)
-    if not merged.empty:
-        merged.drop_duplicates("game_id",keep="last").sort_values(["date","game_id"]).to_csv(out,index=False)
-    print(f"Boxscores: {len(merged)} cached, {len(rows)} newly fetched",flush=True)
+    merged=checkpoint()
+    print(f"Boxscores: {len(merged)} cached, {len(rows)} newly fetched, {len(failures)} failed",flush=True)
     return merged
 
 def rolling_shots_features(games,boxscores,window=15):
