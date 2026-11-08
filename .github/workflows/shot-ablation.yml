@@ -1,0 +1,33 @@
+name: NHL shot data ablation
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'enrich_nhl.py'
+      - 'evaluate_shots.py'
+      - '.github/workflows/shot-ablation.yml'
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -r requirements.txt
+      - name: Download historical NHL games
+        run: python nhl_mvp.py --out data
+      - name: Fetch historical NHL boxscores
+        run: python enrich_nhl.py --games data/games.csv --out data/boxscores.csv --max-games 7000
+      - name: Evaluate matched walk-forward folds
+        run: python evaluate_shots.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nhl-shot-ablation
+          path: |
+            results/shot_ablation_metrics.json
+            data/boxscores.csv
+            data/shot_features.csv
+          retention-days: 30
