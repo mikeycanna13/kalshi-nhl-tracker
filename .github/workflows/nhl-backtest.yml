@@ -7,6 +7,7 @@ on:
       - 'nhl_mvp.py'
       - 'backtest.py'
       - 'run_pipeline.py'
+      - 'improved_model.py'
       - 'requirements.txt'
       - '.github/workflows/nhl-backtest.yml'
 jobs:
@@ -31,4 +32,6 @@ jobs:
             data/games.csv
             results/holdout_metrics.json
             results/holdout_predictions.csv
+            results/walkforward_metrics.json
+            results/walkforward_predictions.csv
           if-no-files-found: warn
