@@ -55,7 +55,7 @@ def normalize(raw, game_dates=None):
         if raw.date.isna().any():
             raise ValueError("Schedule is missing dates for shot games")
     if "team" in raw.columns and raw["team"].isin(["HOME", "AWAY"]).all():
-        raw["teamCode"] = np.where(raw["team"] == "HOME", raw["homeTeamCode"], raw["awayTeamCode"])
+        raw["teamCode"] = np.where(raw["team"] == "HOME", raw["homeTeamCode"], raw["awayTeamCode"])\n        raw = raw.drop(columns=["team"])
     if not any(col in raw.columns for col in ALIASES["opponent"]):
         if "teamCode" not in raw.columns:
             raise ValueError("Cannot infer opponent without team codes")
@@ -67,9 +67,9 @@ def normalize(raw, game_dates=None):
             raise ValueError(f"Required MoneyPuck field {name} not found; candidates={candidates}. "
                              f"Available={list(raw.columns)}")
         columns[name] = hit
-    d = raw.rename(columns={v:k for k,v in columns.items()})[list(columns)].copy()
+    d = pd.DataFrame({name: raw[source] for name, source in columns.items()})
     dates = d["date"].astype(str)
-    if dates.str.fullmatch(r"\\d{8}").all():
+    if dates.str.fullmatch(r"\d{8}").all():
         d["date"] = pd.to_datetime(dates, format="%Y%m%d", errors="raise")
     else:
         d["date"] = pd.to_datetime(d.date, errors="raise").dt.normalize()
