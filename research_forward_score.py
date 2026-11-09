@@ -24,6 +24,21 @@ def primary_archives(records):
             by_date[day]=record
     return sorted(by_date.values(),key=lambda x:x["target_date"])
 
+def collection_window(archive):
+    """Classification comes from frozen capture, not inferred after settlement."""
+    return (archive.get("capture") or {}).get("scheduler_context",{}).get("window","development")
+
+
+def per_window_archives(records):
+    """Earliest frozen run for each target date and each capture window."""
+    selection={}
+    for archive in records:
+        key=(archive["target_date"],collection_window(archive))
+        if key not in selection or parse_time(archive["captured_at_utc"])<parse_time(selection[key]["captured_at_utc"]):
+            selection[key]=archive
+    return sorted(selection.values(),key=lambda x:(x["target_date"],collection_window(x)))
+
+
 def outcome_cache(archives,session,provider=get):
     """Fetch only eligible archived contract tickers, de-duplicated."""
     tickers=sorted({
@@ -161,10 +176,28 @@ def main():
     p.add_argument("--base",default="forward_evidence",type=Path)
     p.add_argument("--out",default="results/forward_paper_score.json",type=Path)
     args=p.parse_args()
-    archives=primary_archives(load_archives(args.base))
+    archives=load_archives(args.base)
+    window_records=per_window_archives(archives)
     with requests.Session() as session:
-        markets,errors=outcome_cache(archives,session)
+        markets,errors=outcome_cache(window_records,session)
     result=compute(archives,markets,errors)
+    grouped=defaultdict(list)
+    for archive in window_records:
+        grouped[collection_window(archive)].append(archive)
+    result["by_collection_window"]={
+        window: {
+            "target_dates":len(subset),
+            "settled_paper_positions":metrics["paper_positions_settled"],
+            "paper_profit_usd":metrics["paper_profit_usd"],
+            "paper_roi":metrics["paper_roi"],
+            "calibration":metrics["calibration"],
+            "source_run_ids":[x["source_run_id"] for x in subset],
+        }
+        for window,subset in grouped.items()
+        for metrics in [compute(subset,markets,errors)]
+    }
+    result["window_comparisons_are_correlated"]=True
+    result["window_selection_method"]="One earliest frozen capture per target date per collection window"
     args.out.parent.mkdir(parents=True,exist_ok=True)
     args.out.write_text(json.dumps(result,indent=2,allow_nan=False),encoding="utf-8")
     print(json.dumps({"status":result["status"],"primary_dates":result["primary_dates"],
