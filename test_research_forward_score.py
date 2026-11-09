@@ -14,7 +14,7 @@ class ForwardScoreTests(unittest.TestCase):
               "ask_cents":55,"fee_cents_per_contract":2,"paper_selected":False}
         yes=dict(base,contract_side="yes",paper_selected=True)
         no=dict(base,contract_side="no",model_probability":.4,
-                paper_selected=False,market_probability":.43)
+                paper_selected=False,market_probability=.43)
         return {"target_date":"2026-11-10","source_run_id":run_id,
                 "captured_at_utc":captured,"capture":{"rows":[yes,no]}}
     def test_no_settlement_is_not_zero_profit(self):
