@@ -54,11 +54,9 @@ jobs:
               "note":"Research paper scoring, no trades or fills; rerun after all contracts finalize."
           },indent=2))
           PY
-        env:
-          CAPTURE_RUN_ID: ${{ inputs.capture_run_id }}
       - uses: actions/upload-artifact@v4
         with:
-          name: nhl-paper-score-${{ inputs.capture_run_id }}
+          name: nhl-paper-score-${{ env.CAPTURE_RUN_ID }}
           path: |
             results/paper_score.json
             results/paper_score_provenance.json
