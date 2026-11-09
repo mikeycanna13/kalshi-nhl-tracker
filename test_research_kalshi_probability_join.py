@@ -9,13 +9,16 @@ class JoinTests(unittest.TestCase):
                 "observed_at_utc":"2026-11-09T20:00:00Z","yes_ask_implied_cents":40,
                 "no_bid_qty":10}
         self.f={"game_id":123,"generated_at_utc":"2026-11-09T19:00:00Z",
-                "pregame_verified":True,"p_over_5_5":0.6}
+                "pregame_verified":True,"scheduled_start_utc":"2026-11-09T23:00:00Z","p_over_5_5":0.6}
     def test_positive_ev(self):
         x=join_quote(self.c,self.q,self.f,fee_cents=2)
         self.assertEqual(x["status"],"research_candidate")
         self.assertAlmostEqual(x["expected_profit_usd"],0.18)
     def test_future_forecast_rejected(self):
         self.f["generated_at_utc"]="2026-11-09T21:00:00Z"
+        self.assertEqual(join_quote(self.c,self.q,self.f,2)["status"],"skipped")
+    def test_post_puckdrop_quote_rejected(self):
+        self.q["observed_at_utc"]="2026-11-09T23:01:00Z"
         self.assertEqual(join_quote(self.c,self.q,self.f,2)["status"],"skipped")
     def test_fee_required(self):
         self.assertEqual(join_quote(self.c,self.q,self.f)["status"],"skipped")
