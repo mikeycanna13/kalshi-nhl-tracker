@@ -1,5 +1,6 @@
 """NHL historical game downloader and leakage-safe Poisson baseline."""
-import argparse,json,time
+import argparse,json,time,random,datetime as dt
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 import numpy as np
 import pandas as pd
@@ -16,21 +17,40 @@ def download(seasons,out,refresh=False):
             print(f"Using {len(previous)} cached historical games; pass --refresh to fetch new results",flush=True)
             return
     games={};session=requests.Session()
+    cache_dir=out/'nhl_schedule_cache';cache_dir.mkdir(parents=True,exist_ok=True)
     for season in seasons:
         for team in TEAMS:
             url=f"https://api-web.nhle.com/v1/club-schedule-season/{team}/{season}"
-            for attempt in range(4):
-                try:
-                    response=session.get(url,timeout=40);response.raise_for_status();payload=response.json();break
-                except requests.RequestException:
-                    if attempt==3:raise
-                    time.sleep(2**attempt)
+            cached_schedule=cache_dir/f"{team}_{season}.json"
+            if cached_schedule.exists() and season != seasons[-1]:
+                payload=json.loads(cached_schedule.read_text())
+            else:
+                for attempt in range(9):
+                    try:
+                        response=session.get(url,timeout=40)
+                        if response.status_code in (429,500,502,503,504):
+                            if attempt==8:response.raise_for_status()
+                            retry=response.headers.get("Retry-After","")
+                            try:wait=float(retry)
+                            except ValueError:
+                                try:wait=max(0,(parsedate_to_datetime(retry)-dt.datetime.now(dt.timezone.utc)).total_seconds())
+                                except (TypeError,ValueError,OverflowError):wait=0
+                            time.sleep(max(wait,min(90,3*2**attempt))+random.uniform(0,.5))
+                            continue
+                        response.raise_for_status()
+                        payload=response.json()
+                        cached_schedule.write_text(json.dumps(payload))
+                        break
+                    except (requests.Timeout,requests.ConnectionError):
+                        if attempt==8:raise
+                        time.sleep(min(90,3*2**attempt)+random.uniform(0,.5))
+                time.sleep(1.0)
             for g in payload.get("games",[]):
                 if g.get("gameType")!=2 or g.get("gameState") not in ("FINAL","OFF"):continue
                 h,a=g.get("homeTeam",{}),g.get("awayTeam",{})
                 if "score" not in h or "score" not in a:continue
                 games[g["id"]]={"game_id":g["id"],"date":g["gameDate"],"season":str(season),"home":h["abbrev"],"away":a["abbrev"],"home_goals":h["score"],"away_goals":a["score"],"home_win":int(h["score"]>a["score"])}
-            time.sleep(.05)
+            time.sleep(.15)
         print(f"Season {season}: {len(games)} unique games",flush=True)
     df=pd.DataFrame(games.values())
     if df.empty:raise RuntimeError("No completed NHL games returned")
