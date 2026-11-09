@@ -1,0 +1,26 @@
+name: NHL free pregame scheduler validation
+on:
+  push:
+    branches: [research/nhl-model-benchmarks]
+    paths:
+      - research_scheduler/**
+      - scheduler/**
+      - test_research_scheduler.py
+      - research_nhl_pregame_forecast.py
+      - .github/workflows/nhl-free-scheduler-tests.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  offline-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate Eastern date handling and immutable trigger files
+        run: python -m unittest -v test_research_scheduler.py
+      - name: Validate Cloudflare Worker timing, duplicate prevention and branch restriction
+        run: node --test scheduler/test_cloudflare_worker.mjs
