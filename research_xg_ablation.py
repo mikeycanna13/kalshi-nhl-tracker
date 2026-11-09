@@ -37,6 +37,10 @@ def main():
         all_shots=pd.concat(shots,ignore_index=True)
         advanced,_=pregame_advanced_features(all_shots,game_dates=schedule)
         base=build_features(games)
+        missing_ids=sorted(set(base.game_id)-set(advanced.game_id))
+        if missing_ids:
+            print("MISSING_XG_GAME_IDS="+json.dumps(missing_ids),flush=True)
+            raise ValueError(f"Missing MoneyPuck xG for {len(missing_ids)} scheduled games; no imputation")
         df=base.merge(advanced.drop(columns=["date"]),on="game_id",how="inner",validate="one_to_one")
         if len(df)!=len(base):raise ValueError(f"Unmatched feature rows {len(df)}/{len(base)}")
         if df.isna().any().any():raise ValueError("Null values in merged feature table")
