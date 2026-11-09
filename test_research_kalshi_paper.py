@@ -23,3 +23,18 @@ class PaperTests(TestCase):
         self.assertAlmostEqual(result["model_brier"], .16)
         self.assertAlmostEqual(result["market_brier"], .25)
         self.assertAlmostEqual(result["paper_profit_usd"], .5326)
+
+    @patch("research_kalshi_paper.get")
+    def test_no_side_settlement_and_calibration_not_double_counted(self, get):
+        get.return_value = {"market":{"status":"finalized","result":"no"}}
+        common = {"status":"research_candidate","ticker":"TOTAL",
+                  "model_probability":.70,"market_probability":.65,
+                  "paper_selected":False,"ask_cents":35,"fee_cents_per_contract":1}
+        yes = dict(common,contract_side="yes",model_probability=.30,market_probability=.35)
+        no = dict(common,contract_side="no",paper_selected=True)
+        result = score(None,{"rows":[yes,no]})
+        self.assertEqual(result["paired_brier_count"],1)
+        self.assertAlmostEqual(result["model_brier"],.09)
+        self.assertAlmostEqual(result["paper_profit_usd"],.64)
+        self.assertEqual(result["settled_paper_positions"],1)
+        self.assertEqual(get.call_count,1)
