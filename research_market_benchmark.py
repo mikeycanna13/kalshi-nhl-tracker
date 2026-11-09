@@ -7,6 +7,7 @@ on user-supplied historical data. Data acquisition is separate.
 """
 import argparse
 import json
+import hashlib
 import math
 import random
 from collections import defaultdict
@@ -246,14 +247,24 @@ def main():
     p.add_argument("--capture",required=True,type=Path)
     p.add_argument("--odds-snapshot",required=True,type=Path)
     p.add_argument("--output",default="results/sportsbook_benchmark.json",type=Path)
+    p.add_argument("--final-results",type=Path,help="Optional independently sourced finalized game outcomes JSON")
     p.add_argument("--max-age-minutes",type=int,default=15)
     p.add_argument("--min-books",type=int,default=3)
     args=p.parse_args()
     if args.max_age_minutes<=0 or args.min_books<2:
         p.error("Require positive max age and >=2 bookmakers")
-    capture=json.loads(args.capture.read_text(encoding="utf-8"))
-    odds=json.loads(args.odds_snapshot.read_text(encoding="utf-8"))
+    capture_bytes=args.capture.read_bytes()
+    odds_bytes=args.odds_snapshot.read_bytes()
+    capture=json.loads(capture_bytes)
+    odds=json.loads(odds_bytes)
     report=compare_capture(capture,odds,args.min_books,args.max_age_minutes)
+    report["capture_sha256"]=hashlib.sha256(capture_bytes).hexdigest()
+    report["sportsbook_snapshot_sha256"]=hashlib.sha256(odds_bytes).hexdigest()
+    if args.final_results:
+        final_data=json.loads(args.final_results.read_text(encoding="utf-8"))
+        if not isinstance(final_data,list):
+            raise ValueError("Final results must be a JSON list of independently verified game outcomes")
+        report["outcome_evaluation"]=score_settled(report,final_data)
     args.output.parent.mkdir(parents=True,exist_ok=True)
     args.output.write_text(json.dumps(report,indent=2,allow_nan=False),encoding="utf-8")
     print(json.dumps({"status":report["status"],"paired_games":report["paired_games"],
