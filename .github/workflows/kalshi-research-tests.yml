@@ -3,8 +3,11 @@ on:
   push:
     branches: [research/nhl-model-benchmarks]
     paths:
+      - research_kalshi_probability_join.py
+      - test_research_kalshi_probability_join.py
+      - research_kalshi_ev.py
       - research_kalshi_contract_match.py
-      - test_research_kalshi_contract_match.py
+      - test_research_kalshi_contract_match.py test_research_kalshi_probability_join.py
       - research_kalshi_snapshots.py
       - test_research_kalshi_snapshots.py
       - .github/workflows/kalshi-research-tests.yml
