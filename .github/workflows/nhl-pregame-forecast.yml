@@ -14,13 +14,21 @@ on:
 jobs:
   forecast:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 55
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
       - run: pip install -r requirements.txt
+      - name: Restore historical NHL schedule cache
+        uses: actions/cache/restore@v4
+        with:
+          path: data/nhl_schedule_cache
+          key: nhl-schedule-cache-v1-${{ github.run_id }}
+          restore-keys: |
+            nhl-schedule-cache-v1-
+
       - name: Download completed NHL historical games
         run: python nhl_mvp.py --seasons 20212022 20222023 20232024 20242025 20252026 20262027
       - name: Build strictly pregame research forecasts
@@ -29,6 +37,12 @@ jobs:
         run: |
           if [ -z "$TARGET_DATE" ]; then TARGET_DATE=$(date -u -d '+1 day' +%F); fi
           python research_nhl_pregame_forecast.py --date "$TARGET_DATE"
+      - name: Save partial NHL schedule cache even on failed run
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: data/nhl_schedule_cache
+          key: nhl-schedule-cache-v1-${{ github.run_id }}
       - uses: actions/upload-artifact@v4
         if: always()
         with:
