@@ -1,4 +1,9 @@
 name: NHL research pregame forecasts
+permissions:
+  contents: write
+concurrency:
+  group: nhl-research-archive-${{ github.ref }}
+  cancel-in-progress: false
 on:
   workflow_dispatch:
     inputs:
@@ -16,6 +21,7 @@ on:
     paths:
       - research_nhl_pregame_forecast.py
       - research_asof_audit.py
+      - research_forward_ledger.py
       - research_market_benchmark.py
       - research_sportsbook_capture.py
       - nhl_mvp.py
@@ -63,6 +69,15 @@ jobs:
         run: python research_asof_audit.py results/paper_capture.json
       - name: Generate auditable candidate rankings
         run: python research_kalshi_report.py results/paper_capture.json --benchmark results/sportsbook_benchmark.json --audit results/asof_audit.json
+      - name: Create append-only archive of this research capture
+        run: |
+          python research_forward_ledger.py archive \
+            --capture results/paper_capture.json \
+            --audit results/asof_audit.json \
+            --benchmark results/sportsbook_benchmark.json \
+            --run-id "$GITHUB_RUN_ID"
+      - name: Summarize forward evidence by primary game date
+        run: python research_forward_ledger.py summary
       - name: Save partial NHL schedule cache even on failed run
         if: always()
         uses: actions/cache/save@v4
@@ -81,5 +96,27 @@ jobs:
             results/asof_audit.json
             results/sportsbook_snapshot.json
             results/sportsbook_benchmark.json
+            results/forward_ledger_summary.json
           if-no-files-found: ignore
           retention-days: 90
+      - name: Commit frozen public research evidence to research branch
+        # Persist evidence beyond Actions artifact expiration, without touching production.
+        if: ${{ success() && github.ref == 'refs/heads/research/nhl-model-benchmarks' }}
+        run: |
+          set -euo pipefail
+          git config user.name "nhl-research-archive[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- forward_evidence/
+          git diff --cached --quiet && { echo "Archive unexpectedly empty"; exit 1; }
+          git commit -m "research: immutable NHL evidence from run ${GITHUB_RUN_ID}"
+          for attempt in 1 2 3; do
+            git fetch origin research/nhl-model-benchmarks
+            git rebase origin/research/nhl-model-benchmarks
+            if git push origin HEAD:refs/heads/research/nhl-model-benchmarks; then
+              echo "Research archive saved for run ${GITHUB_RUN_ID}"
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "Evidence was included in the Actions artifact, but persistent research-branch archival failed"
+          exit 1
