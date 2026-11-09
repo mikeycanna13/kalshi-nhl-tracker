@@ -10,6 +10,7 @@ on:
     branches: [research/nhl-model-benchmarks]
     paths:
       - research_nhl_pregame_forecast.py
+      - research_asof_audit.py
       - nhl_mvp.py
       - 'research_kalshi_*.py'
       - .github/workflows/nhl-pregame-forecast.yml
@@ -41,6 +42,8 @@ jobs:
           python research_nhl_pregame_forecast.py --date "$TARGET_DATE"
       - name: Capture and rank live Kalshi research quotes
         run: python research_kalshi_paper.py capture results/pregame_forecasts.json results/paper_capture.json
+      - name: Audit forecast provenance and pregame quote timestamps
+        run: python research_asof_audit.py results/paper_capture.json
       - name: Generate auditable candidate rankings
         run: python research_kalshi_report.py results/paper_capture.json
       - name: Save partial NHL schedule cache even on failed run
@@ -58,5 +61,6 @@ jobs:
             results/paper_capture.json
             results/paper_report.csv
             results/paper_report.md
+            results/asof_audit.json
           if-no-files-found: ignore
           retention-days: 90
