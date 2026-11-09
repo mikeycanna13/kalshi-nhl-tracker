@@ -12,7 +12,7 @@ from nhl_mvp import download
 from advanced_stats import load_shots, pregame_advanced_features
 from improved_model import build_features, FEATURES, MARKETS, score
 
-SEASONS=["2022","2023","2024"]
+SEASONS=["2021","2022","2023","2024","2025"]
 def main():
     with tempfile.TemporaryDirectory() as tmp:
         root=Path(tmp)
@@ -41,26 +41,53 @@ def main():
         if len(df)!=len(base):raise ValueError(f"Unmatched feature rows {len(df)}/{len(base)}")
         if df.isna().any().any():raise ValueError("Null values in merged feature table")
         xg=[c for c in advanced if c.endswith("_pg")]
-        train=df[df.season<"20242025"]
-        test=df[df.season=="20242025"]
-        if len(train)<2400 or len(test)<1200:raise ValueError("Insufficient train/test seasons")
-        report={"protocol":"2022-23 and 2023-24 train; held-out 2024-25 test; no same-day or future features",
-                "train_games":len(train),"test_games":len(test),"shot_counts":counts,
-                "xg_features":xg,"markets":{}}
-        for market,target in MARKETS.items():
-            ytrain=train[target].to_numpy(int)
-            ytest=test[target].to_numpy(int)
-            results={}
-            for name,columns in [("baseline",FEATURES),("baseline_plus_xg",FEATURES+xg)]:
-                model=make_pipeline(StandardScaler(),LogisticRegression(C=.08,max_iter=1500))
-                model.fit(train[columns].to_numpy(float),ytrain)
-                p=model.predict_proba(test[columns].to_numpy(float))[:,1]
-                results[name]=score(ytest,p)
-            results["brier_improvement"]=round(results["baseline"]["brier"]-results["baseline_plus_xg"]["brier"],8)
-            results["logloss_improvement"]=round(results["baseline"]["log_loss"]-results["baseline_plus_xg"]["log_loss"],8)
-            report["markets"][market]=results
+        rng=np.random.default_rng(20261108)
+        report={"protocol":"Expanding-window; 2023-24, 2024-25, 2025-26 held-out folds; historical pregame xG",
+                "shot_counts":counts,"xg_features":xg,"folds":[],"pooled":{}}
+        pooled={market:{"y":[],"baseline":[],"baseline_plus_xg":[]} for market in MARKETS}
+        for season in ["20232024","20242025","20252026"]:
+            train=df[df.season<season]
+            test=df[df.season==season]
+            if len(train)<2400 or len(test)<1000:
+                raise ValueError(f"Insufficient fold data {season}: {len(train)} train, {len(test)} test")
+            fold={"test_season":season,"train_games":len(train),"test_games":len(test),"markets":{}}
+            for market,target in MARKETS.items():
+                ytrain=train[target].to_numpy(int)
+                ytest=test[target].to_numpy(int)
+                predictions={}
+                for name,columns in [("baseline",FEATURES),("baseline_plus_xg",FEATURES+xg)]:
+                    model=make_pipeline(StandardScaler(),LogisticRegression(C=.08,max_iter=1500))
+                    model.fit(train[columns].to_numpy(float),ytrain)
+                    predictions[name]=model.predict_proba(test[columns].to_numpy(float))[:,1]
+                result={name:score(ytest,p) for name,p in predictions.items()}
+                result["brier_improvement"]=float(result["baseline"]["brier"]-result["baseline_plus_xg"]["brier"])
+                result["logloss_improvement"]=float(result["baseline"]["log_loss"]-result["baseline_plus_xg"]["log_loss"])
+                fold["markets"][market]=result
+                pooled[market]["y"].extend(ytest.tolist())
+                for name,p in predictions.items():pooled[market][name].extend(p.tolist())
+            report["folds"].append(fold)
+        for market,values in pooled.items():
+            y=np.asarray(values["y"],dtype=float)
+            p0=np.clip(np.asarray(values["baseline"]),1e-6,1-1e-6)
+            p1=np.clip(np.asarray(values["baseline_plus_xg"]),1e-6,1-1e-6)
+            brier_delta=(y-p0)**2-(y-p1)**2
+            log_delta=-(y*np.log(p0)+(1-y)*np.log(1-p0))+(y*np.log(p1)+(1-y)*np.log(1-p1))
+            fold_sizes=[f["test_games"] for f in report["folds"]]
+            bounds=np.cumsum([0]+fold_sizes)
+            groups=[np.arange(bounds[i],bounds[i+1]) for i in range(len(fold_sizes))]
+            draws=np.empty((2000,2))
+            for i in range(2000):
+                sampled=np.concatenate([rng.choice(g,size=len(g),replace=True) for g in groups])
+                draws[i]=[brier_delta[sampled].mean(),log_delta[sampled].mean()]
+            report["pooled"][market]={
+                "test_games":len(y),"baseline":score(y,p0),"baseline_plus_xg":score(y,p1),
+                "brier_improvement":float(brier_delta.mean()),
+                "brier_95pct_ci":np.quantile(draws[:,0],[.025,.975]).tolist(),
+                "logloss_improvement":float(log_delta.mean()),
+                "logloss_95pct_ci":np.quantile(draws[:,1],[.025,.975]).tolist(),
+                "positive_brier_folds":sum(f["markets"][market]["brier_improvement"]>0 for f in report["folds"])}
         print("REAL_XG_ABLATION="+json.dumps(report,sort_keys=True),flush=True)
-        if not np.isfinite([v for market in report["markets"].values() for k,m in market.items() if isinstance(m,dict) for v in m.values()]).all():
+        if not all(np.isfinite(m["brier_improvement"]) for m in report["pooled"].values()):
             raise ValueError("Nonfinite model metrics")
 
 if __name__=="__main__":main()
