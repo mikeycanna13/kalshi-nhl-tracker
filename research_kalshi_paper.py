@@ -34,6 +34,48 @@ def utc_now():
     return datetime.now(timezone.utc).isoformat()
 
 
+
+def economic_exposure(row):
+    """Collapse contracts representing the same NHL outcome, including YES/NO complements."""
+    contract = row.get("contract") or {}
+    side = row.get("contract_side")
+    game = contract.get("nhl_game_id")
+    kind = contract.get("market_type")
+    if kind == "moneyline":
+        forecast = row.get("forecast") or {}
+        selected = forecast.get("contract_selection_team")
+        home, away = contract.get("home_team"), contract.get("away_team")
+        if selected not in (home,away) or side not in ("yes","no"):
+            return ("unknown", row.get("ticker"), side)
+        winning_team = selected if side == "yes" else (away if selected == home else home)
+        return ("winner",game,winning_team)
+    if kind == "total":
+        return ("total",game,contract.get("threshold"),side)
+    return ("contract",row.get("ticker"),side)
+
+
+def rank_unique_exposures(rows, variant=None):
+    """Take the highest modeled EV quote for each unique underlying payout."""
+    selected = {}
+    for row in rows:
+        position = (row.get("starter_shadow") or {}).get(variant) if variant else row
+        if not position or position.get("status") != "research_candidate":
+            continue
+        if position.get("expected_profit_usd",0) <= 0:
+            continue
+        key = economic_exposure(row)
+        previous = selected.get(key)
+        def preference(entry):
+            p = (entry.get("starter_shadow") or {}).get(variant) if variant else entry
+            return (p["expected_profit_usd"], p.get("quote_quantity",0))
+        if previous is None or preference(row) > preference(previous):
+            selected[key]=row
+    return sorted(selected.values(),key=lambda r: (
+        -((r.get("starter_shadow") or {}).get(variant) if variant else r)["expected_profit_usd"],
+        -((r.get("starter_shadow") or {}).get(variant) if variant else r).get("quote_quantity",0),
+        r["ticker"],r.get("contract_side","yes")))
+
+
 def capture(session, forecasts):
     """Capture both YES and NO actionable sides without inventing executable fills."""
     date = forecasts["target_date"]
@@ -114,22 +156,17 @@ def capture(session, forecasts):
                     midpoint_yes = (yes_bid + yes_ask) / 200
                     row["market_probability"] = midpoint_yes if side == "yes" else 1 - midpoint_yes
                 rows.append(row)
-    ranked = sorted((r for r in rows if r.get("status") == "research_candidate"
-                     and r.get("expected_profit_usd", 0) > 0),
-                    key=lambda r: (-r["expected_profit_usd"], r["ticker"], r["contract_side"]))
+    ranked = rank_unique_exposures(rows)
     for row in ranked[:5]:
         row["paper_selected"] = True
     for variant in ("baseline", "adjusted"):
-        shadow_ranked = sorted(
-            (r["starter_shadow"][variant] for r in rows
-             if r.get("starter_shadow", {}).get(variant, {}).get("expected_profit_usd", 0) > 0),
-            key=lambda r: (-r["expected_profit_usd"], r["ticker"], r["contract_side"]))
-        for candidate in shadow_ranked[:5]:
-            candidate["paper_selected"] = True
+        for row in rank_unique_exposures(rows,variant)[:5]:
+            row["starter_shadow"][variant]["paper_selected"] = True
     return {"captured_at_utc": utc_now(), "forecasts": forecasts, "rows": rows,
             "top_five": [{"ticker": r["ticker"], "side": r["contract_side"],
                           "expected_profit_usd": r["expected_profit_usd"]}
                          for r in ranked[:5]],
+            "unique_positive_exposures": len(ranked),
             "counts": dict(Counter(r.get("reason", "evaluated")
                                    for r in rows)),
             "method": "Immutable pregame research snapshot; model/quote join on both YES and NO; one-contract taker-fee assumption; no execution"}
