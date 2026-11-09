@@ -1,13 +1,29 @@
 from unittest import TestCase
 from unittest.mock import patch
 
-from research_kalshi_paper import fee_cents, score
+from research_kalshi_paper import fee_cents, score, rank_unique_exposures
 
 
 class PaperTests(TestCase):
     def test_taker_fee_rounds_up_to_centicent(self):
         self.assertEqual(fee_cents({"fee_type": "quadratic", "fee_multiplier": 1}, 49), 1.75)
         self.assertIsNone(fee_cents({"fee_type": "unknown", "fee_multiplier": 1}, 49))
+
+
+    def test_complementary_moneylines_count_as_one_economic_exposure(self):
+        contract={"market_type":"moneyline","nhl_game_id":123,
+                  "home_team":"CBJ","away_team":"FLA"}
+        base={"status":"research_candidate","expected_profit_usd":.048,
+              "quote_quantity":1}
+        yes=dict(base, ticker="CBJ-YES", contract=contract,
+                 contract_side="yes", quote_quantity=100,
+                 forecast={"contract_selection_team":"CBJ"})
+        no=dict(base, ticker="FLA-NO", contract=contract,
+                contract_side="no", quote_quantity=1,
+                forecast={"contract_selection_team":"FLA"})
+        ranked=rank_unique_exposures([no,yes])
+        self.assertEqual(len(ranked),1)
+        self.assertEqual(ranked[0]["ticker"],"CBJ-YES")
 
     @patch("research_kalshi_paper.get")
     def test_score_uses_settled_results_and_frozen_prices(self, get):
