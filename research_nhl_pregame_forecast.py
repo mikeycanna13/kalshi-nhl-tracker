@@ -13,12 +13,13 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LogisticRegression
 from improved_model import build_features,FEATURES,MARKETS
+from research_scheduler.resolve_target import target_is_past_in_new_york
 
 def forecast(date, history_file="data/games.csv", out="results/pregame_forecasts.json",
              starter_file=None, shots_file=None):
     target=dt.date.fromisoformat(date)
     today=dt.datetime.now(dt.timezone.utc)
-    if target < today.date():raise ValueError("Target date is in the past")
+    if target_is_past_in_new_york(date,today):raise ValueError("Target NHL date is in the past in America/New_York")
     source_loaded_at=dt.datetime.now(dt.timezone.utc)
     source_sha256=hashlib.sha256(Path(history_file).read_bytes()).hexdigest()
     games=pd.read_csv(history_file,dtype={"season":str})
