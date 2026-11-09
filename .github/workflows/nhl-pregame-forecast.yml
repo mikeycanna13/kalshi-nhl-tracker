@@ -41,6 +41,8 @@ jobs:
           python research_nhl_pregame_forecast.py --date "$TARGET_DATE"
       - name: Capture and rank live Kalshi research quotes
         run: python research_kalshi_paper.py capture results/pregame_forecasts.json results/paper_capture.json
+      - name: Generate auditable candidate rankings
+        run: python research_kalshi_report.py results/paper_capture.json
       - name: Save partial NHL schedule cache even on failed run
         if: always()
         uses: actions/cache/save@v4
@@ -54,5 +56,7 @@ jobs:
           path: |
             results/pregame_forecasts.json
             results/paper_capture.json
+            results/paper_report.csv
+            results/paper_report.md
           if-no-files-found: ignore
-          retention-days: 14
+          retention-days: 90
