@@ -1,0 +1,38 @@
+name: NHL research pregame forecasts
+on:
+  workflow_dispatch:
+    inputs:
+      target_date:
+        description: 'NHL schedule date (YYYY-MM-DD); defaults to next UTC day'
+        required: false
+        type: string
+  push:
+    branches: [research/nhl-model-benchmarks]
+    paths:
+      - research_nhl_pregame_forecast.py
+      - .github/workflows/nhl-pregame-forecast.yml
+jobs:
+  forecast:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -r requirements.txt
+      - name: Download completed NHL historical games
+        run: python nhl_mvp.py --seasons 20212022 20222023 20232024 20242025 20252026 20262027
+      - name: Build strictly pregame research forecasts
+        env:
+          TARGET_DATE: ${{ inputs.target_date }}
+        run: |
+          if [ -z "$TARGET_DATE" ]; then TARGET_DATE=$(date -u -d '+1 day' +%F); fi
+          python research_nhl_pregame_forecast.py --date "$TARGET_DATE"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nhl-pregame-research-forecasts
+          path: results/pregame_forecasts.json
+          if-no-files-found: ignore
+          retention-days: 14
