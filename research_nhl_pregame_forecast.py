@@ -32,7 +32,11 @@ def forecast(date,history_file="data/games.csv",out="results/pregame_forecasts.j
         home=(g.get("homeTeam") or {}).get("abbrev")
         away=(g.get("awayTeam") or {}).get("abbrev")
         if not (home and away and g.get("id")):continue
-        scheduled.append({"game_id":int(g["id"]),"date":date,
+        start=g.get("startTimeUTC")
+        if not start:continue
+        start_at=dt.datetime.fromisoformat(start.replace("Z","+00:00"))
+        if start_at<=today:continue
+        scheduled.append({"game_id":int(g["id"]),"date":date,"start_time_utc":start,
                           "season":str(g["season"]),"home":home,"away":away,
                           "home_goals":0,"away_goals":0})
     if not scheduled:raise RuntimeError("No uncompleted regular-season games on date")
@@ -57,15 +61,16 @@ def forecast(date,history_file="data/games.csv",out="results/pregame_forecasts.j
           "p_over_6_5":float(preds["over_6_5"][i]),
           "generated_at_utc":today.isoformat(),"model_trained_through_utc":today.isoformat(),
           "last_training_game_date":str(games.date.max()),
-          "pregame_verified":False,
-          "warning":"Must independently verify scheduled start time and forecast timestamp before trading analysis"})
+          "scheduled_start_utc":original["start_time_utc"],
+          "pregame_verified":True,
+          "warning":"Pregame time verified against NHL schedule at generation; revalidate postponements and market settlement before analysis"})
     output=Path(out);output.parent.mkdir(parents=True,exist_ok=True)
     output.write_text(json.dumps({"target_date":date,"training_games":len(train),
           "forecast_count":len(records),"forecasts":records},indent=2))
     print("NHL_PREGAME_FORECAST="+json.dumps({"date":date,"training_games":len(train),
           "forecast_count":len(records),"output":str(output),
           "limitations":["No confirmed goalie or injury inputs",
-                         "Start-time verification required before quote join",
+                         "Scheduled start checked against NHL API; quote must also predate puck drop",
                          "No live price or fee join"]}),flush=True)
 if __name__=="__main__":
     p=argparse.ArgumentParser()
