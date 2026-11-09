@@ -1,0 +1,21 @@
+name: NHL append-only forward research ledger tests
+on:
+  push:
+    branches: [research/nhl-model-benchmarks]
+    paths:
+      - research_forward_ledger.py
+      - test_research_forward_ledger.py
+      - .github/workflows/nhl-forward-ledger-tests.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m unittest -v test_research_forward_ledger.py
