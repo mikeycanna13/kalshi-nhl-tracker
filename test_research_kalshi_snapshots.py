@@ -16,3 +16,15 @@ class TestKalshiSnapshots(unittest.TestCase):
         no_bid,_=best([[35,4],[42,8]])
         self.assertEqual(100-no_bid,58)
 if __name__=="__main__":unittest.main()
+
+class FixedPointBookTests(unittest.TestCase):
+    def test_live_schema_preserves_fractional_depth(self):
+        from research_kalshi_snapshots import book_bids
+        book = {"orderbook_fp": {"yes_dollars": [["0.4500", "3.23"]],
+                                 "no_dollars": [["0.5100", "124.00"]]}}
+        self.assertEqual(book_bids(book), ((45, 3.23), (51, 124.0)))
+
+    def test_legacy_schema_still_supported(self):
+        from research_kalshi_snapshots import book_bids
+        self.assertEqual(book_bids({"orderbook": {"no": [[45, 2]]}}),
+                         ((None, None), (45, 2)))

@@ -10,6 +10,8 @@ on:
     branches: [research/nhl-model-benchmarks]
     paths:
       - research_nhl_pregame_forecast.py
+      - nhl_mvp.py
+      - 'research_kalshi_*.py'
       - .github/workflows/nhl-pregame-forecast.yml
 jobs:
   forecast:
@@ -37,6 +39,8 @@ jobs:
         run: |
           if [ -z "$TARGET_DATE" ]; then TARGET_DATE=$(date -u -d '+1 day' +%F); fi
           python research_nhl_pregame_forecast.py --date "$TARGET_DATE"
+      - name: Capture and rank live Kalshi research quotes
+        run: python research_kalshi_paper.py capture results/pregame_forecasts.json results/paper_capture.json
       - name: Save partial NHL schedule cache even on failed run
         if: always()
         uses: actions/cache/save@v4
@@ -47,6 +51,8 @@ jobs:
         if: always()
         with:
           name: nhl-pregame-research-forecasts
-          path: results/pregame_forecasts.json
+          path: |
+            results/pregame_forecasts.json
+            results/paper_capture.json
           if-no-files-found: ignore
           retention-days: 14

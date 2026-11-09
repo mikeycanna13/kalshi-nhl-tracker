@@ -7,7 +7,7 @@ import math
 
 def evaluate_quote(prob_yes,yes_ask_cents,quantity=1,fee_cents_per_contract=None):
     if not 0<=prob_yes<=1:raise ValueError("Probability outside [0,1]")
-    if not isinstance(yes_ask_cents,int) or not 1<=yes_ask_cents<=99:
+    if not isinstance(yes_ask_cents,(int,float)) or not 0<yes_ask_cents<100:
         raise ValueError("Missing or invalid executable-side price")
     if not isinstance(quantity,int) or quantity<1:raise ValueError("Invalid quantity")
     if fee_cents_per_contract is None:

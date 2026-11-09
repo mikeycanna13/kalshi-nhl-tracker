@@ -3,13 +3,8 @@ on:
   push:
     branches: [research/nhl-model-benchmarks]
     paths:
-      - research_kalshi_probability_join.py
-      - test_research_kalshi_probability_join.py
-      - research_kalshi_ev.py
-      - research_kalshi_contract_match.py
-      - test_research_kalshi_contract_match.py test_research_kalshi_probability_join.py
-      - research_kalshi_snapshots.py
-      - test_research_kalshi_snapshots.py
+      - 'research_kalshi_*.py'
+      - 'test_research_kalshi_*.py'
       - .github/workflows/kalshi-research-tests.yml
   workflow_dispatch:
 jobs:
@@ -22,4 +17,4 @@ jobs:
           python-version: '3.11'
           cache: pip
       - run: pip install -r requirements.txt
-      - run: python -m unittest -v test_research_kalshi_snapshots.py test_research_kalshi_contract_match.py
+      - run: python -m unittest discover -v -p 'test_research_kalshi_*.py'

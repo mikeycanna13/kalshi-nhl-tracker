@@ -31,4 +31,8 @@ class JoinTests(unittest.TestCase):
     def test_no_liquidity(self):
         self.q["no_bid_qty"]=0
         self.assertEqual(join_quote(self.c,self.q,self.f,2)["status"],"skipped")
+    def test_mixed_utc_formats_at_puck_drop(self):
+        self.q["observed_at_utc"] = "2026-11-09T23:00:00+00:00"
+        self.assertEqual(join_quote(self.c, self.q, self.f, 2)["status"], "skipped")
+
 if __name__=="__main__":unittest.main()

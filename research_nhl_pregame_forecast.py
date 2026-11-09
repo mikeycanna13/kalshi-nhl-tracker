@@ -13,7 +13,6 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LogisticRegression
 from improved_model import build_features,FEATURES,MARKETS
-from nhl_mvp import download
 
 def forecast(date,history_file="data/games.csv",out="results/pregame_forecasts.json"):
     target=dt.date.fromisoformat(date)
@@ -51,19 +50,24 @@ def forecast(date,history_file="data/games.csv",out="results/pregame_forecasts.j
         model=make_pipeline(StandardScaler(),LogisticRegression(C=.08,max_iter=1000))
         model.fit(train[FEATURES].to_numpy(float),train[label].to_numpy(int))
         preds[name]=model.predict_proba(test[FEATURES].to_numpy(float))[:,1]
+    generated = dt.datetime.now(dt.timezone.utc)
     records=[]
     for i,(_,row) in enumerate(test.iterrows()):
         original=next(x for x in scheduled if x["game_id"]==int(row.game_id))
+        if dt.datetime.fromisoformat(original["start_time_utc"].replace("Z", "+00:00")) <= generated:
+            continue
         records.append({"game_id":int(row.game_id),"home_team":original["home"],
           "away_team":original["away"],"date":date,
           "p_home_win":float(preds["moneyline"][i]),
           "p_over_5_5":float(preds["over_5_5"][i]),
           "p_over_6_5":float(preds["over_6_5"][i]),
-          "generated_at_utc":today.isoformat(),"model_trained_through_utc":today.isoformat(),
+          "generated_at_utc":generated.isoformat(),"model_trained_through_utc":generated.isoformat(),
           "last_training_game_date":str(games.date.max()),
           "scheduled_start_utc":original["start_time_utc"],
           "pregame_verified":True,
           "warning":"Pregame time verified against NHL schedule at generation; revalidate postponements and market settlement before analysis"})
+    if not records:
+        raise RuntimeError("No games remained pregame after model fitting")
     output=Path(out);output.parent.mkdir(parents=True,exist_ok=True)
     output.write_text(json.dumps({"target_date":date,"training_games":len(train),
           "forecast_count":len(records),"forecasts":records},indent=2))

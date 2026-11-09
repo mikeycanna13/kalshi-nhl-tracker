@@ -5,6 +5,7 @@ Orderbook asks are inferred from opposing-side bids, NOT observed ask orders.
 """
 import argparse
 import csv
+from decimal import Decimal, InvalidOperation
 import datetime as dt
 import json
 import os
@@ -35,6 +36,25 @@ def best(levels):
     valid=[(int(x[0]),int(x[1])) for x in levels if isinstance(x,(list,tuple)) and len(x)>=2]
     if not valid:return None,None
     return max(valid,key=lambda x:x[0])
+def book_bids(payload):
+    """Return best YES and NO bids as (cents, contracts) pairs."""
+    if "orderbook_fp" not in payload:
+        book = payload["orderbook"]
+        return best(book.get("yes")), best(book.get("no"))
+    book = payload["orderbook_fp"]
+    bids = []
+    for side in ("yes_dollars", "no_dollars"):
+        try:
+            levels = [(Decimal(price) * 100, Decimal(size))
+                      for price, size in (book.get(side) or [])]
+            price, size = max((level for level in levels
+                               if 0 < level[0] < 100 and level[1] > 0),
+                              default=(None, None))
+        except InvalidOperation as exc:
+            raise ValueError("Invalid fixed-point orderbook") from exc
+        bids.append((float(price), float(size)) if price is not None else (None, None))
+    return tuple(bids)
+
 def collect(session,series,limit=1000):
     markets=[];cursor=None
     for _ in range(20):
@@ -60,9 +80,8 @@ def snapshot(series,out,include_unclassified=False,max_markets=500):
         ticker=market.get("ticker")
         if not ticker:continue
         try:
-            book=get(session,"/markets/"+ticker+"/orderbook").get("orderbook",{})
-            yes_price,yes_qty=best(book.get("yes"))
-            no_price,no_qty=best(book.get("no"))
+            book = get(session, "/markets/" + ticker + "/orderbook")
+            (yes_price, yes_qty), (no_price, no_qty) = book_bids(book)
             # Opposite-side bid implies the executable limit ask only if
             # that opposing liquidity remains available; NOT a fill guarantee.
             rows.append({"observed_at_utc":dt.datetime.now(dt.timezone.utc).isoformat(),

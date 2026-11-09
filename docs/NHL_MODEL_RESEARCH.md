@@ -40,3 +40,24 @@ The historical game dataset has five seasons; this first suite tests the last th
 ## Deployment safety
 
 All benchmark development is on `research/nhl-model-benchmarks`, not `main`. Do not merge until the persistent Railway historical download finishes and checkpoint recovery is verified.
+
+## Forward paper validation
+
+The research forecast workflow now captures public Kalshi order books after it
+builds the pregame forecasts. Save each resulting capture artifact before it
+expires. Use one precommitted snapshot per slate when aggregating results.
+
+```sh
+python research_kalshi_paper.py capture results/pregame_forecasts.json results/paper_capture.json
+python research_kalshi_paper.py score results/paper_capture.json results/paper_score.json
+```
+
+Each capture keeps all forecasts and all discovered moneyline and total
+contracts for the target slate, including skipped contracts and reasons. The
+paper policy selects up to five positive-EV YES positions, one contract each,
+using the observed opposite bid for entry and the series taker fee. The
+market baseline is the observed YES midpoint. The scorer uses binary
+finalized Kalshi settlements and retains unresolved or nonbinary outcomes
+in its counts. A paper entry assumes the displayed depth remains available
+and carries no slippage. Contract rows within a game are correlated, so
+the number of scored contracts is not an independent sample size.
