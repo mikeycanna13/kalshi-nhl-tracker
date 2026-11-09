@@ -49,15 +49,19 @@ def render_markdown(capture, rows):
     valid = [r for r in rows if r["status"] == "research_candidate"]
     ranked = sorted((r for r in valid if (r["ev_per_contract_usd"] or 0) > 0),
                     key=lambda r: -r["ev_per_contract_usd"])
+    chosen = [r for r in ranked if r["paper_selected"]]
+    if not chosen:
+        # A legacy capture may not include a paper portfolio.
+        chosen = ranked
     date = capture.get("forecasts", {}).get("target_date", "unknown")
     lines = [f"# NHL/Kalshi pregame research — {date}", "",
              f"Captured: {capture.get('captured_at_utc', 'unknown')}", "",
              f"Markets / sides captured: {len(rows)}; validated sides: {len(valid)}; "
-             f"positive-EV sides: {len(ranked)}.", "",
+             f"positive-EV sides: {len(ranked)}; unique top paper positions: {len(chosen[:5])}.", "",
              "## Top five modeled opportunities", "",
              "| Side | Market | Model P | Ask | Fee | Break-even P | Model EV / contract | Depth |",
              "|---|---|---:|---:|---:|---:|---:|---:|"]
-    for r in ranked[:5]:
+    for r in chosen[:5]:
         lines.append("| {side} | `{ticker}` | {prob:.2%} | {ask:.2f}¢ | {fee:.2f}¢ | "
                      "{breakeven:.2%} | ${ev:+.4f} | {depth:g} |".format(
                          side=r["side"].upper(), ticker=r["ticker"],
