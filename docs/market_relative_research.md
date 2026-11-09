@@ -97,3 +97,54 @@ event-level overrides or final actual trading charges are captured.
 contemporaneous sportsbook benchmark after explicit costs, with intervals
 excluding no edge in genuinely forward data. Until then, model candidates
 remain research observations, not recommended trades.
+
+
+## Forward evidence and settlement (research branch only)
+
+Every successful pregame run archives a single validated evidence record under
+`forward_evidence/YYYY-MM-DD/<GITHUB_RUN_ID>.json` on the research branch.
+The archive includes the per-game forecast, source hash, contract-selection
+metadata, both sides of observed Kalshi quotes, fee assumption, candidate flags,
+and a point-in-time audit. To keep Git history manageable, redundant raw market
+responses are omitted from **new** archive records; the full original capture
+remains in the 90-day GitHub Actions artifact.
+
+Archive records are append-only by path, checksummed, and checked by
+`test_research_forward_ledger.py`. The archive is not a complete immutable
+external data vault or a guarantee that repository administrators cannot rewrite
+Git history. No paid sportsbook raw responses, API keys, or third-party private
+data are intentionally persisted to Git.
+
+The forward ledger summary selects the **earliest validated capture for each
+NHL target date** and records how many eligible snapshots and selected paper
+positions were retained. This is not yet a fixed-clock capture policy:
+development commits can trigger irregularly timed captures. Future conclusions
+must disclose this selection rule.
+
+Once Kalshi contracts finalize, use the research-only scorer:
+
+    python research_forward_score.py --base forward_evidence \
+      --out results/forward_paper_score.json
+
+Or run the **NHL multi-date forward paper-score research** workflow manually.
+It checks the public Kalshi market status for each distinct ticker, ignores
+unfinalized/void results, and scores one selected paper portfolio per game date.
+Moneyline calibration is one observation per NHL game (not one per YES/NO side).
+It never records actual fills.
+
+### Automation constraint
+
+GitHub Actions `schedule` workflows execute from the repository's default
+branch, not a research-only branch. To respect the explicit restriction against
+changing production/main, **no unattended daily capture schedule has been
+activated**. Code-push research runs and manually dispatched research-branch
+runs can archive evidence. A daily fixed-time schedule would require a separate
+authorized scheduling mechanism; never assume it is active.
+
+### What this cannot prove
+
+The archive does not make unversioned injury/xG history point-in-time correct,
+nor can it substitute for historical sportsbook snapshots. Positive modeled EV
+and positive paper ROI based on inferred best asks remain hypothetical until
+actual quote fillability, fee overrides and statistically credible out-of-sample
+performance are established.
