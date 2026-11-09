@@ -1,10 +1,18 @@
 """Goalie snapshot leakage and starter projection tests."""
 import unittest
 import pandas as pd
-from goalie_features import goalie_snapshots, attach_projected_goalies
+from goalie_features import goalie_snapshots, attach_projected_goalies, prior_goalie_features
 from test_advanced_stats import game
 
 class GoalieTests(unittest.TestCase):
+    def test_prior_goalie_proxy_ignores_target_game_shots(self):
+        first = game(1, "2025-10-01", .1, .2)
+        target = game(2, "2025-10-02", .9, .8)
+        features = prior_goalie_features(pd.DataFrame(first + target + game(3, "2025-10-02", .4, .6))).set_index("game_id")
+        self.assertAlmostEqual(features.loc[2, "home_goalie_gsax"], (.2 - 1) / 13)
+        self.assertAlmostEqual(features.loc[2, "away_goalie_gsax"], .1 / 13)
+        self.assertEqual(features.loc[2, "home_goalie_gsax"], features.loc[3, "home_goalie_gsax"])
+
     def test_snapshot_excludes_same_day(self):
         raw=pd.DataFrame(game(1,"2025-10-01",.1,.2)+game(2,"2025-10-02",.9,.8))
         snapshots=goalie_snapshots(raw)

@@ -39,6 +39,38 @@ def goalie_snapshots(raw, prior_games=12, game_dates=None):
         "snapshot_date","goalie_id","prior_games","prior_xga","prior_ga",
         "prior_gsax","shrunk_gsax_per_game"])
 
+def prior_goalie_features(raw, prior_games=12, game_dates=None):
+    """Estimate team goalie strength using its most recent prior game's goalie pool."""
+    shots = normalize(raw, game_dates=game_dates)
+    fixtures = shots[["date", "game_id", "home", "away"]].drop_duplicates()
+    appearances = (shots.dropna(subset=["goalie"])
+                   .groupby(["date", "game_id", "opponent", "goalie"], as_index=False)
+                   .agg(xga=("xg", "sum"), ga=("goal", "sum"), attempts=("goal", "size")))
+    by_day = {date: day for date, day in appearances.groupby("date")}
+    history = defaultdict(lambda: [0., 0])
+    last_pool = {}
+    rows = []
+
+    def strength(team):
+        pool = last_pool.get(team, {})
+        return sum(weight * history[g][0] / (prior_games + history[g][1])
+                   for g, weight in pool.items())
+
+    for date, day in fixtures.groupby("date", sort=True):
+        for game in day.itertuples(index=False):
+            rows.append({"game_id": game.game_id, "home_goalie_gsax": strength(game.home),
+                         "away_goalie_gsax": strength(game.away)})
+        if date not in by_day:
+            continue
+        for (_, team), pool in by_day[date].groupby(["game_id", "opponent"]):
+            attempts = pool.attempts.sum()
+            last_pool[team] = {g.goalie: g.attempts / attempts for g in pool.itertuples()}
+            for g in pool.itertuples():
+                history[g.goalie][0] += g.xga - g.ga
+                history[g.goalie][1] += 1
+    return pd.DataFrame(rows)
+
+
 def attach_projected_goalies(games, projections, snapshots):
     """Join externally timestamped starter projections, never actual game starters.
 
