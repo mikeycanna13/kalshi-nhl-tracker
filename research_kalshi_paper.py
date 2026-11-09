@@ -90,12 +90,26 @@ def capture(session, forecasts):
                 forecast = dict(forecast, selection_ticker=ticker, contract_selection_team=team)
             result = join_quote(contract, quote, forecast, fee_cents(metadata, ask) if ask else None)
             row.update(result)
+            if result["status"] == "research_candidate" and forecast.get("starter_shadow"):
+                probabilities = forecast["starter_shadow"]
+                for variant in ("baseline", "adjusted"):
+                    values = probabilities[variant]
+                    paired = dict(forecast, p_home_win=values["moneyline"],
+                                  p_over_5_5=values["over_5_5"], p_over_6_5=values["over_6_5"])
+                    row.setdefault("starter_shadow", {})[variant] = join_quote(
+                        contract, quote, paired, result["fee_cents_per_contract"])
             if bid is not None and ask is not None:
                 row["market_probability"] = (bid + ask) / 200
     ranked = sorted((r for r in rows if r.get("expected_profit_usd", 0) > 0),
                     key=lambda r: (-r["expected_profit_usd"], r["ticker"]))
     for row in ranked[:5]:
         row["paper_selected"] = True
+    for variant in ("baseline", "adjusted"):
+        shadow_ranked = sorted((r["starter_shadow"][variant] for r in rows
+                               if r.get("starter_shadow", {}).get(variant, {}).get("expected_profit_usd", 0) > 0),
+                               key=lambda r: (-r["expected_profit_usd"], r["ticker"]))
+        for candidate in shadow_ranked[:5]:
+            candidate["paper_selected"] = True
     return {"captured_at_utc": utc_now(), "forecasts": forecasts, "rows": rows,
             "top_five": [r["ticker"] for r in ranked[:5]],
             "counts": dict(Counter(r.get("reason", "evaluated") for r in rows))}
@@ -103,6 +117,9 @@ def capture(session, forecasts):
 
 def score(session, capture_data):
     pairs = []
+    shadow_pairs = []
+    shadow_pnl = Counter()
+    shadow_cost = Counter()
     pnl = cost = 0
     settled_paper = 0
     counts = Counter()
@@ -118,6 +135,15 @@ def score(session, capture_data):
         counts["settled"] += 1
         if "market_probability" in row:
             pairs.append((row["model_probability"], row["market_probability"], outcome))
+        shadow = row.get("starter_shadow", {})
+        if all(shadow.get(k, {}).get("status") == "research_candidate" for k in ("baseline", "adjusted")):
+            shadow_pairs.append((shadow["baseline"]["model_probability"],
+                                 shadow["adjusted"]["model_probability"], outcome))
+            for variant, position in shadow.items():
+                if position.get("paper_selected"):
+                    entry = (position["yes_ask_cents"] + position["fee_cents_per_contract"]) / 100
+                    shadow_cost[variant] += entry
+                    shadow_pnl[variant] += outcome - entry
         if row.get("paper_selected"):
             entry = (row["yes_ask_cents"] + row["fee_cents_per_contract"]) / 100
             cost += entry
@@ -131,6 +157,13 @@ def score(session, capture_data):
                                 "mean_forecast": sum(p for p, _ in bucket) / len(bucket),
                                 "actual_rate": sum(y for _, y in bucket) / len(bucket)})
     return {"counts": dict(counts), "paired_brier_count": len(pairs),
+            "starter_shadow": {
+                "settled_pairs": len(shadow_pairs),
+                **{variant: {"brier": sum((p[index] - p[2])**2 for p in shadow_pairs) / len(shadow_pairs)
+                             if shadow_pairs else None,
+                             "paper_profit_usd": round(shadow_pnl[variant], 6) if shadow_cost[variant] else None,
+                             "paper_roi": shadow_pnl[variant] / shadow_cost[variant] if shadow_cost[variant] else None}
+                   for index, variant in enumerate(("baseline", "adjusted"))}},
             "model_brier": sum((p-y)**2 for p, _, y in pairs)/len(pairs) if pairs else None,
             "market_brier": sum((p-y)**2 for _, p, y in pairs)/len(pairs) if pairs else None,
             "calibration": calibration, "settled_paper_positions": settled_paper,

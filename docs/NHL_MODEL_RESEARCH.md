@@ -61,3 +61,20 @@ finalized Kalshi settlements and retains unresolved or nonbinary outcomes
 in its counts. A paper entry assumes the displayed depth remains available
 and carries no slippage. Contract rows within a game are correlated, so
 the number of scored contracts is not an independent sample size.
+
+## Confirmed starter shadow study
+
+Run the ordinary forecast with both `--starter-evidence` and `--starter-shots`
+to enable the research-only comparison. Evidence is a JSON array with
+`game_id`, `team` (NHL abbreviation), `goalie_id` (verified NHL player ID),
+`observed_at_utc`, `status` and `source_url`. Record the observation time when
+reading the source. Keep unconfirmed reports in the evidence. Both teams must
+have a current confirmation by the forecast cutoff to produce a paired row.
+
+The shot input is a combined MoneyPuck CSV with full NHL game IDs. Use recent
+shot coverage when available. The paired models train on the same historical
+games. The adjusted model learns from the prior-game goalie pool proxy and
+substitutes the two confirmed goalies' prior ratings at forecast time. This
+transfer is the hypothesis under test. The usual forecast remains the source
+for the existing paper study. Capture and score the same artifact as above
+to compare the shadow models on identical quotes and settled contracts.

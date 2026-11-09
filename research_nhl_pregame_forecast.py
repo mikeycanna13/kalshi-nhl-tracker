@@ -14,7 +14,8 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LogisticRegression
 from improved_model import build_features,FEATURES,MARKETS
 
-def forecast(date,history_file="data/games.csv",out="results/pregame_forecasts.json"):
+def forecast(date, history_file="data/games.csv", out="results/pregame_forecasts.json",
+             starter_file=None, shots_file=None):
     target=dt.date.fromisoformat(date)
     today=dt.datetime.now(dt.timezone.utc)
     if target < today.date():raise ValueError("Target date is in the past")
@@ -50,13 +51,56 @@ def forecast(date,history_file="data/games.csv",out="results/pregame_forecasts.j
         model=make_pipeline(StandardScaler(),LogisticRegression(C=.08,max_iter=1000))
         model.fit(train[FEATURES].to_numpy(float),train[label].to_numpy(int))
         preds[name]=model.predict_proba(test[FEATURES].to_numpy(float))[:,1]
+    shadow = {}
+    starter_evidence = []
+    if starter_file:
+        from advanced_stats import load_shots, normalize
+        from goalie_features import prior_goalie_features
+        from starter_evidence import confirmed_pair
+
+        starter_evidence = json.loads(Path(starter_file).read_text(encoding="utf-8"))
+        cutoff = dt.datetime.now(dt.timezone.utc)
+        pairs = {g["game_id"]: confirmed_pair(g, starter_evidence, cutoff)
+                 for g in scheduled
+                 if dt.datetime.fromisoformat(g["start_time_utc"].replace("Z", "+00:00")) > cutoff}
+        if any(pairs.values()):
+            # The input uses full NHL game IDs, including the season prefix.
+            shots = load_shots(shots_file)
+            raw_ids = next(c for c in ("game_id", "gameId", "gameID") if c in shots)
+            shots = shots[pd.to_numeric(shots[raw_ids], errors="raise").isin(games.game_id)]
+            historical = prior_goalie_features(shots, game_dates=games)
+            training = train.merge(historical, on="game_id", validate="one_to_one")
+            if len(training) < 1500:
+                raise ValueError("Insufficient matched shot history for starter shadow model")
+            # Use one common training sample for both members of the pair.
+            normalized = normalize(shots, game_dates=games)
+            goalie_rows = normalized.dropna(subset=["goalie"]).groupby("goalie")
+            gsax = ((goalie_rows.xg.sum() - goalie_rows.goal.sum())
+                    / (goalie_rows.game_id.nunique() + 12))
+            columns = FEATURES + ["home_goalie_gsax", "away_goalie_gsax"]
+            models = {}
+            for name, label in MARKETS.items():
+                for kind, inputs in (("baseline", FEATURES), ("adjusted", columns)):
+                    model = make_pipeline(StandardScaler(), LogisticRegression(C=.08, max_iter=1000))
+                    model.fit(training[inputs].to_numpy(float), training[label].to_numpy(int))
+                    models[name, kind] = model, inputs
+            for game_id, pair in pairs.items():
+                if not pair or any(goalie not in gsax for goalie in pair):
+                    continue
+                row = test[test.game_id == game_id].assign(home_goalie_gsax=gsax[pair[0]],
+                                                           away_goalie_gsax=gsax[pair[1]])
+                result = {"goalie_ids_home_away": pair, "training_games": len(training),
+                          "baseline": {}, "adjusted": {}}
+                for (name, kind), (model, inputs) in models.items():
+                    result[kind][name] = float(model.predict_proba(row[inputs].to_numpy(float))[0, 1])
+                shadow[game_id] = result
     generated = dt.datetime.now(dt.timezone.utc)
     records=[]
     for i,(_,row) in enumerate(test.iterrows()):
         original=next(x for x in scheduled if x["game_id"]==int(row.game_id))
         if dt.datetime.fromisoformat(original["start_time_utc"].replace("Z", "+00:00")) <= generated:
             continue
-        records.append({"game_id":int(row.game_id),"home_team":original["home"],
+        record = {"game_id":int(row.game_id),"home_team":original["home"],
           "away_team":original["away"],"date":date,
           "p_home_win":float(preds["moneyline"][i]),
           "p_over_5_5":float(preds["over_5_5"][i]),
@@ -65,12 +109,15 @@ def forecast(date,history_file="data/games.csv",out="results/pregame_forecasts.j
           "last_training_game_date":str(games.date.max()),
           "scheduled_start_utc":original["start_time_utc"],
           "pregame_verified":True,
-          "warning":"Pregame time verified against NHL schedule at generation; revalidate postponements and market settlement before analysis"})
+          "warning":"Pregame time verified against NHL schedule at generation; revalidate postponements and market settlement before analysis"}
+        if original["game_id"] in shadow:
+            record["starter_shadow"] = shadow[original["game_id"]]
+        records.append(record)
     if not records:
         raise RuntimeError("No games remained pregame after model fitting")
     output=Path(out);output.parent.mkdir(parents=True,exist_ok=True)
     output.write_text(json.dumps({"target_date":date,"training_games":len(train),
-          "forecast_count":len(records),"forecasts":records},indent=2))
+          "forecast_count":len(records),"forecasts":records, "starter_evidence":starter_evidence},indent=2))
     print("NHL_PREGAME_FORECAST="+json.dumps({"date":date,"training_games":len(train),
           "forecast_count":len(records),"output":str(output),
           "limitations":["No confirmed goalie or injury inputs",
@@ -81,5 +128,9 @@ if __name__=="__main__":
     p.add_argument("--date",required=True)
     p.add_argument("--history",default="data/games.csv")
     p.add_argument("--out",default="results/pregame_forecasts.json")
+    p.add_argument("--starter-evidence", help="JSON list of timestamped, team-specific starter reports")
+    p.add_argument("--starter-shots", help="Combined MoneyPuck shot CSV with full NHL game IDs")
     a=p.parse_args()
-    forecast(a.date,a.history,a.out)
+    if bool(a.starter_evidence) != bool(a.starter_shots):
+        p.error("--starter-evidence and --starter-shots must be supplied together")
+    forecast(a.date, a.history, a.out, a.starter_evidence, a.starter_shots)
