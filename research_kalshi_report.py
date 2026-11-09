@@ -45,7 +45,7 @@ def make_rows(capture):
     return result
 
 
-def render_markdown(capture, rows):
+def render_markdown(capture, rows, benchmark=None, audit=None):
     valid = [r for r in rows if r["status"] == "research_candidate"]
     ranked = sorted((r for r in valid if (r["ev_per_contract_usd"] or 0) > 0),
                     key=lambda r: -r["ev_per_contract_usd"])
@@ -73,6 +73,20 @@ def render_markdown(capture, rows):
                          depth=r["ask_side_depth"]))
     if not ranked:
         lines.append("| — | No positive modeled EV with a validated quote | — | — | — | — | — | — |")
+    if benchmark is not None:
+        lines += ["", "## Independent market benchmark", "",
+                  f"Paired games with fresh sportsbook consensus: **{benchmark.get('paired_games',0)}** / "
+                  f"{benchmark.get('comparison_count',0)} researched games.", ""]
+        if benchmark.get("paired_games",0)==0:
+            lines.append("**No validated sportsbook comparison is available. Positive model EV is NOT evidence of market-beating accuracy.**")
+        else:
+            lines.append("Market-relative estimates are preliminary; outcome scoring requires independently finalized games.")
+    if audit is not None:
+        statuses=audit.get("forecast_status_counts",{})
+        lines += ["", "## Point-in-time audit", "",
+                  f"Audit status: **{audit.get('overall_status','unknown')}**; operational pregame forecasts: "
+                  f"{statuses.get('operational_pregame_only',0)}; "
+                  "historical source-vintage replay: **not verified**.", ""]
     lines += ["", "## Method and limitations", "",
               "All prices come from frozen pregame public orderbook snapshots.",
               "The ask is inferred from opposite-side bid depth; it is **not** a verified fill.",
@@ -84,7 +98,7 @@ def render_markdown(capture, rows):
     return "\n".join(lines)
 
 
-def export(capture, csv_path, markdown_path):
+def export(capture, csv_path, markdown_path, benchmark=None, audit=None):
     rows = make_rows(capture)
     csv_path, markdown_path = Path(csv_path), Path(markdown_path)
     csv_path.parent.mkdir(parents=True,exist_ok=True)
@@ -93,7 +107,7 @@ def export(capture, csv_path, markdown_path):
         writer = csv.DictWriter(out, fieldnames=FIELDS)
         writer.writeheader()
         writer.writerows(rows)
-    markdown_path.write_text(render_markdown(capture,rows),encoding="utf-8")
+    markdown_path.write_text(render_markdown(capture,rows,benchmark,audit),encoding="utf-8")
     return {"rows":len(rows),"evaluated":sum(r["status"]=="research_candidate" for r in rows),
             "positive_ev":sum((r["ev_per_contract_usd"] or 0)>0 for r in rows)}
 
@@ -102,6 +116,10 @@ if __name__=="__main__":
     parser.add_argument("capture",type=Path)
     parser.add_argument("--csv",type=Path,default=Path("results/paper_report.csv"))
     parser.add_argument("--markdown",type=Path,default=Path("results/paper_report.md"))
+    parser.add_argument("--benchmark",type=Path)
+    parser.add_argument("--audit",type=Path)
     args=parser.parse_args()
     capture=json.loads(args.capture.read_text(encoding="utf-8"))
-    print(json.dumps(export(capture,args.csv,args.markdown)),flush=True)
+    benchmark=json.loads(args.benchmark.read_text(encoding="utf-8")) if args.benchmark else None
+    audit=json.loads(args.audit.read_text(encoding="utf-8")) if args.audit else None
+    print(json.dumps(export(capture,args.csv,args.markdown,benchmark,audit)),flush=True)
