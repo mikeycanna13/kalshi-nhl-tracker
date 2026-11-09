@@ -20,6 +20,19 @@ class JoinTests(unittest.TestCase):
     def test_post_puckdrop_quote_rejected(self):
         self.q["observed_at_utc"]="2026-11-09T23:01:00Z"
         self.assertEqual(join_quote(self.c,self.q,self.f,2)["status"],"skipped")
+    def test_no_side_uses_no_ask_and_yes_bid_liquidity(self):
+        self.q.update({"yes_bid_qty":8,"no_ask_implied_cents":30})
+        result=join_quote(self.c,self.q,self.f,fee_cents=2,side="no")
+        self.assertEqual(result["status"],"research_candidate")
+        self.assertEqual(result["contract_side"],"no")
+        self.assertAlmostEqual(result["model_probability"],0.4)
+        self.assertEqual(result["ask_cents"],30)
+        self.assertAlmostEqual(result["expected_profit_usd"],0.08)
+    def test_no_side_without_yes_bid_liquidity_skips(self):
+        self.q.update({"yes_bid_qty":0,"no_ask_implied_cents":30})
+        self.assertEqual(join_quote(self.c,self.q,self.f,2,side="no")["status"],"skipped")
+    def test_invalid_contract_side_skips(self):
+        self.assertEqual(join_quote(self.c,self.q,self.f,2,side="both")["status"],"skipped")
     def test_fee_required(self):
         self.assertEqual(join_quote(self.c,self.q,self.f)["status"],"skipped")
     def test_no_player_model(self):
