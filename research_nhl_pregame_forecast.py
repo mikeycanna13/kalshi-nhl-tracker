@@ -4,7 +4,7 @@ One target schedule date per run. Synthetic future rows are feature placeholders
 never training labels. Forecast timestamps and data cutoff are recorded.
 Research only; no betting orders or trading recommendations.
 """
-import argparse,datetime as dt,json
+import argparse,datetime as dt,json,hashlib,os
 from pathlib import Path
 import numpy as np
 import pandas as pd
@@ -19,6 +19,8 @@ def forecast(date, history_file="data/games.csv", out="results/pregame_forecasts
     target=dt.date.fromisoformat(date)
     today=dt.datetime.now(dt.timezone.utc)
     if target < today.date():raise ValueError("Target date is in the past")
+    source_loaded_at=dt.datetime.now(dt.timezone.utc)
+    source_sha256=hashlib.sha256(Path(history_file).read_bytes()).hexdigest()
     games=pd.read_csv(history_file,dtype={"season":str})
     games["date"]=pd.to_datetime(games["date"]).dt.strftime("%Y-%m-%d")
     games=games[games.date<date].copy()
@@ -138,6 +140,11 @@ def forecast(date, history_file="data/games.csv", out="results/pregame_forecasts
           "p_over_6_5":float(preds["over_6_5"][i]),
           "generated_at_utc":generated.isoformat(),"model_trained_through_utc":generated.isoformat(),
           "last_training_game_date":str(games.date.max()),
+          "training_source_sha256":source_sha256,
+          "training_source_loaded_at_utc":source_loaded_at.isoformat(),
+          "training_source_type":"nhl_completed_game_scores",
+          "historical_input_vintages_verified":False,
+          "model_code_commit":os.environ.get("GITHUB_SHA","unversioned-local"),
           "scheduled_start_utc":original["start_time_utc"],
           "pregame_verified":True,
           "warning":"Pregame time verified against NHL schedule at generation; revalidate postponements and market settlement before analysis"}
