@@ -20,6 +20,8 @@ on:
     branches: [research/nhl-model-benchmarks]
     paths:
       - research_nhl_pregame_forecast.py
+      - research_scheduler/**
+      - scheduler/triggers/**
       - research_asof_audit.py
       - research_forward_ledger.py
       - research_market_benchmark.py
@@ -33,6 +35,8 @@ jobs:
     timeout-minutes: 55
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -47,12 +51,23 @@ jobs:
 
       - name: Download completed NHL historical games
         run: python nhl_mvp.py --seasons 20212022 20222023 20232024 20242025 20252026 20262027
-      - name: Build strictly pregame research forecasts
+      - name: Resolve research scheduler window and NHL date
         env:
-          TARGET_DATE: ${{ inputs.target_date }}
+          REQUESTED_DATE: ${{ inputs.target_date }}
         run: |
-          if [ -z "$TARGET_DATE" ]; then TARGET_DATE=$(date -u -d '+1 day' +%F); fi
-          python research_nhl_pregame_forecast.py --date "$TARGET_DATE"
+          set -euo pipefail
+          mkdir -p results
+          FALLBACK=$(TZ=America/New_York date -d '+1 day' +%F)
+          if [ -n "${REQUESTED_DATE:-}" ]; then
+            python -c 'import json,os; print(json.dumps({"target_date":os.environ["REQUESTED_DATE"],"window":"development"}))' > results/scheduler_context.json
+          else
+            python research_scheduler/resolve_target.py --commit "$GITHUB_SHA" --fallback "$FALLBACK" > results/scheduler_context.json
+          fi
+          TARGET_DATE=$(python -c 'import json;print(json.load(open("results/scheduler_context.json"))["target_date"])')
+          echo "TARGET_DATE=$TARGET_DATE" >> "$GITHUB_ENV"
+          cat results/scheduler_context.json
+      - name: Build strictly pregame research forecasts
+        run: python research_nhl_pregame_forecast.py --date "$TARGET_DATE"
       - name: Optional live sportsbook snapshot (workflow_dispatch only; consumes provider quota)
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.collect_sportsbook == true }}
         env:
@@ -63,6 +78,8 @@ jobs:
         run: python research_sportsbook_capture.py
       - name: Capture and rank live Kalshi research quotes
         run: python research_kalshi_paper.py capture results/pregame_forecasts.json results/paper_capture.json
+      - name: Attach scheduler provenance to frozen research capture
+        run: python research_scheduler/annotate_capture.py --capture results/paper_capture.json --context results/scheduler_context.json
       - name: Benchmark model versus time-matched sportsbook consensus, if available
         run: python research_market_benchmark.py --capture results/paper_capture.json --odds-snapshot results/sportsbook_snapshot.json
       - name: Audit forecast provenance and pregame quote timestamps
@@ -91,6 +108,7 @@ jobs:
           path: |
             results/pregame_forecasts.json
             results/paper_capture.json
+            results/scheduler_context.json
             results/paper_report.csv
             results/paper_report.md
             results/asof_audit.json
