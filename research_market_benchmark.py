@@ -8,6 +8,8 @@ on user-supplied historical data. Data acquisition is separate.
 import argparse
 import json
 import math
+import random
+from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 from statistics import median
@@ -170,8 +172,12 @@ def compare_capture(capture,snapshot,min_books=3,max_age_minutes=15):
                            "No training or model blending is performed",
                            "No sportsbook or Kalshi executions are assumed"]}
 
-def score_settled(comparisons,final_results):
-    """Only independently supplied final outcomes; no retrospective odds retrieval."""
+def score_settled(comparisons,final_results,bootstrap_samples=1000,seed=2026):
+    """Time-matched proper scoring with game-date block-bootstrap intervals.
+
+    Statistical intervals are withheld for very small samples. They describe
+    one frozen model/policy and DO NOT correct for repeated model selection.
+    """
     lookup={str(g["game_id"]):g for g in final_results}
     scored=[]
     for pair in comparisons.get("comparisons",[]):
@@ -186,13 +192,54 @@ def score_settled(comparisons,final_results):
         outcome=int(winner==pair["home_team"])
         model=pair["model_home_probability"]
         market=pair["sportsbook_fair_home_probability"]
-        scored.append((model,market,outcome))
+        day=pair["scheduled_start_utc"][:10]
+        scored.append((model,market,outcome,day))
     if not scored:
-        return {"status":"not_evaluable","settled_games":0,"reason":"No verified finalized outcomes"}
+        return {"status":"not_evaluable","settled_games":0,
+                "reason":"No verified finalized outcomes"}
+    def loss(prob,outcome):
+        p=min(1-1e-12,max(1e-12,prob))
+        return -(outcome*math.log(p)+(1-outcome)*math.log(1-p))
+    def stats(rows):
+        n=len(rows)
+        return {
+            "model_brier":sum((m-y)**2 for m,_,y,_ in rows)/n,
+            "sportsbook_brier":sum((p-y)**2 for _,p,y,_ in rows)/n,
+            "model_log_loss":sum(loss(m,y) for m,_,y,_ in rows)/n,
+            "sportsbook_log_loss":sum(loss(p,y) for _,p,y,_ in rows)/n}
+    metrics=stats(scored)
+    metrics["brier_delta_model_minus_sportsbook"]=(metrics["model_brier"]-
+                                                    metrics["sportsbook_brier"])
+    metrics["log_loss_delta_model_minus_sportsbook"]=(metrics["model_log_loss"]-
+                                                       metrics["sportsbook_log_loss"])
+    dates=defaultdict(list)
+    for row in scored:
+        dates[row[3]].append(row)
+    interval=None
+    if len(scored)>=50 and len(dates)>=20 and bootstrap_samples>=100:
+        groups=list(dates.values())
+        rng=random.Random(seed)
+        deltas=[]
+        log_deltas=[]
+        for _ in range(bootstrap_samples):
+            sample=[item for _ in range(len(groups))
+                    for item in rng.choice(groups)]
+            draw=stats(sample)
+            deltas.append(draw["model_brier"]-draw["sportsbook_brier"])
+            log_deltas.append(draw["model_log_loss"]-draw["sportsbook_log_loss"])
+        deltas.sort();log_deltas.sort()
+        lo=int(.025*bootstrap_samples)
+        hi=min(bootstrap_samples-1,int(.975*bootstrap_samples))
+        interval={"method":"game-date block bootstrap, fixed model",
+                  "samples":bootstrap_samples,"dates":len(dates),
+                  "brier_delta_95pct":[deltas[lo],deltas[hi]],
+                  "log_loss_delta_95pct":[log_deltas[lo],log_deltas[hi]]}
     return {"status":"scored","settled_games":len(scored),
-            "model_brier":sum((m-y)**2 for m,_,y in scored)/len(scored),
-            "sportsbook_brier":sum((p-y)**2 for _,p,y in scored)/len(scored),
-            "warning":"Descriptive comparison only. No significance, no realized ROI"}
+            "distinct_game_dates":len(dates),**metrics,
+            "research_interval":interval,
+            "interval_status":"available" if interval else "insufficient games/dates",
+            "warning":"Negative delta favors model. Descriptive research only; model-selection bias, multiple testing, and trade execution are NOT accounted for. No demonstrated ROI."}
+
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
