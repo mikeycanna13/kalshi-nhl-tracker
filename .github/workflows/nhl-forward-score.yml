@@ -1,0 +1,30 @@
+name: NHL multi-date forward paper-score research
+on:
+  workflow_dispatch:
+  push:
+    branches: [research/nhl-model-benchmarks]
+    paths:
+      - research_forward_score.py
+      - research_forward_ledger.py
+      - .github/workflows/nhl-forward-score.yml
+permissions:
+  contents: read
+jobs:
+  frozen-settlement-score:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: research/nhl-model-benchmarks
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install requests
+      - name: Evaluate earliest frozen snapshot per target NHL date
+        run: python research_forward_score.py --base forward_evidence --out results/forward_paper_score.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nhl-forward-paper-score
+          path: results/forward_paper_score.json
+          retention-days: 90
