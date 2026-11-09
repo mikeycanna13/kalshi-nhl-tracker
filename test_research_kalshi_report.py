@@ -22,11 +22,16 @@ class ReportTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             csv_path=Path(directory)/"test.csv"
             md_path=Path(directory)/"test.md"
-            counts=export(capture,csv_path,md_path)
+            counts=export(capture,csv_path,md_path,
+                          benchmark={"paired_games":0,"comparison_count":1},
+                          audit={"overall_status":"conditional",
+                                 "forecast_status_counts":{"operational_pregame_only":1}})
             self.assertEqual(counts["positive_ev"],1)
             self.assertIn("ABC",csv_path.read_text())
             self.assertIn("NO",md_path.read_text())
             self.assertIn("0.3350",md_path.read_text())
+            self.assertIn("No validated sportsbook comparison",md_path.read_text())
+            self.assertIn("historical source-vintage replay",md_path.read_text())
 
 
 if __name__=="__main__":
