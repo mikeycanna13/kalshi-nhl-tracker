@@ -29,6 +29,24 @@ def parse_time(value):
         raise ValueError("Timestamp must have an explicit UTC offset")
     return stamp.astimezone(timezone.utc)
 
+def compact_public_capture(capture):
+    """Remove redundant Kalshi market metadata while preserving replay inputs.
+
+    The full original capture remains downloadable in the Actions artifact
+    for its retention window. The long-term ledger stores all candidate
+    contracts, observed quote sides, fees, forecast and scoring labels,
+    but not a duplicate full market response per side.
+    """
+    keep=("ticker","contract","forecast","quote","contract_side","fee_schedule",
+          "status","reason","model_probability","market_probability",
+          "expected_profit_usd","expected_roi","ask_cents","yes_ask_cents",
+          "fee_cents_per_contract","breakeven_probability","quote_quantity",
+          "paper_selected","starter_shadow","starter_input_types")
+    reduced={k:v for k,v in capture.items() if k!="rows"}
+    reduced["rows"]=[{k:row[k] for k in keep if k in row}
+                     for row in capture.get("rows",[])]
+    return reduced
+
 def make_archive(capture,audit,benchmark,run_id):
     if not RUN_ID.fullmatch(str(run_id)):
         raise ValueError("GitHub run id must be numeric")
@@ -63,8 +81,9 @@ def make_archive(capture,audit,benchmark,run_id):
         "source_run_id":str(run_id),
         "target_date":target,
         "captured_at_utc":captured.isoformat(),
-        "capture_sha256":sha256(capture),
-        "capture":capture,
+        "capture_sha256":sha256(compact_public_capture(capture)),
+        "original_capture_sha256":sha256(capture),
+        "capture":compact_public_capture(capture),
         "audit_summary":{
             "overall_status":audit["overall_status"],
             "forecast_status_counts":audit.get("forecast_status_counts",{}),
