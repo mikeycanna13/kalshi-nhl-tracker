@@ -17,6 +17,9 @@ def join_quote(contract, quote, forecast, fee_cents=None):
         return {"status":"skipped","reason":"missing or future-dated pregame forecast"}
     if forecast.get("model_trained_through_utc") and forecast["model_trained_through_utc"]>generated:
         return {"status":"skipped","reason":"model training cutoff after forecast"}
+    start=forecast.get("scheduled_start_utc")
+    if not start or generated>=start or observed>=start:
+        return {"status":"skipped","reason":"forecast or quote not before verified scheduled puck drop"}
     if forecast.get("pregame_verified") is not True:
         return {"status":"skipped","reason":"forecast not verified pregame"}
     if quote.get("ticker")!=contract.get("ticker"):
