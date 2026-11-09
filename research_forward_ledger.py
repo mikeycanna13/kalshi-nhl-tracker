@@ -144,9 +144,9 @@ def main():
     a.add_argument("--audit",required=True,type=Path)
     a.add_argument("--benchmark",required=True,type=Path)
     a.add_argument("--run-id",required=True)
-    a.add_argument("--base",default="data/forward_evidence",type=Path)
+    a.add_argument("--base",default="forward_evidence",type=Path)
     b=sub.add_parser("summary")
-    b.add_argument("--base",default="data/forward_evidence",type=Path)
+    b.add_argument("--base",default="forward_evidence",type=Path)
     b.add_argument("--out",default="results/forward_ledger_summary.json",type=Path)
     args=p.parse_args()
     if args.mode=="archive":
