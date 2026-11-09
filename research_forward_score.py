@@ -132,7 +132,7 @@ def compute(archives,markets,errors=None):
         n=len(samples)
         model=sum((x["model"]-x["outcome"])**2 for x in samples)/n
         market=sum((x["market"]-x["outcome"])**2 for x in samples)/n
-        scored[kind]={"n":n,"unique_games":len(set(x["date"] for x in samples)),
+        scored[kind]={"n":n,"distinct_target_dates":len(set(x["date"] for x in samples)),
                       "model_brier":round(model,7),"market_brier":round(market,7),
                       "brier_delta_model_minus_kalshi":round(model-market,7),
                       "warning":"Uncertainty intervals and statistical significance not computed; same-game correlated contracts."}
