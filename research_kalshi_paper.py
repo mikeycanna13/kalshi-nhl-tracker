@@ -35,6 +35,7 @@ def utc_now():
 
 
 def capture(session, forecasts):
+    """Capture both YES and NO actionable sides without inventing executable fills."""
     date = forecasts["target_date"]
     response = session.get("https://api-web.nhle.com/v1/score/" + date, timeout=30)
     response.raise_for_status()
@@ -51,70 +52,87 @@ def capture(session, forecasts):
             ticker = market["ticker"]
             contract = reconcile(market, schedule)
             forecast = by_id.get(contract.get("nhl_game_id"))
-            row = {"ticker": ticker, "contract": contract, "market": market,
-                   "fee_schedule": {k: metadata.get(k) for k in ("fee_type", "fee_multiplier")}}
-            rows.append(row)
+            base_row = {"ticker": ticker, "contract": contract, "market": market,
+                        "fee_schedule": {k: metadata.get(k) for k in ("fee_type", "fee_multiplier")}}
             if forecast is None:
-                row["reason"] = "no matched forecast"
+                rows.append(dict(base_row, reason="no matched forecast"))
                 continue
-            row["forecast"] = forecast
-            game = games[forecast["game_id"]]
-            if (game.get("gameState") not in ("FUT", "PRE")
+            game = games.get(forecast["game_id"])
+            if (not game or game.get("gameState") not in ("FUT", "PRE")
                 or parse_timestamp(game["startTimeUTC"]) != parse_timestamp(forecast["scheduled_start_utc"])
                 or game["homeTeam"]["abbrev"] != forecast["home_team"]
                 or game["awayTeam"]["abbrev"] != forecast["away_team"]):
-                row["reason"] = "NHL fixture changed or no longer pregame"
+                rows.append(dict(base_row, reason="NHL fixture changed or no longer pregame"))
                 continue
             try:
                 book = get(session, "/markets/" + ticker + "/orderbook", {"depth": 1})
                 observed = utc_now()
-                (bid, _), (no_bid, size) = book_bids(book)
+                (yes_bid, yes_size), (no_bid, no_size) = book_bids(book)
             except (requests.RequestException, ValueError, TypeError, KeyError) as exc:
-                row["reason"] = "orderbook unavailable: " + str(exc)
+                rows.append(dict(base_row, reason="orderbook unavailable: " + str(exc)))
                 continue
             finally:
                 time.sleep(.1)
-            ask = float(Decimal(100) - Decimal(str(no_bid))) if no_bid is not None else None
-            quote = {"ticker": ticker, "snapshot_kind": "live_orderbook", "observed_at_utc": observed,
-                     "yes_ask_implied_cents": ask, "yes_bid_cents": bid, "no_bid_qty": size}
-            row["quote"] = quote
-            if bid is not None and ask is not None and bid > ask:
-                row["reason"] = "crossed orderbook"
+            yes_ask = float(Decimal(100) - Decimal(str(no_bid))) if no_bid is not None else None
+            no_ask = float(Decimal(100) - Decimal(str(yes_bid))) if yes_bid is not None else None
+            quote = {"ticker": ticker, "snapshot_kind": "live_orderbook",
+                     "observed_at_utc": observed, "yes_bid_cents": yes_bid,
+                     "no_bid_cents": no_bid, "yes_ask_implied_cents": yes_ask,
+                     "no_ask_implied_cents": no_ask, "yes_bid_qty": yes_size,
+                     "no_bid_qty": no_size}
+            if (yes_bid is not None and yes_ask is not None and yes_bid > yes_ask) or (
+                    no_bid is not None and no_ask is not None and no_bid > no_ask):
+                rows.append(dict(base_row, quote=quote, reason="crossed orderbook"))
                 continue
+            selection = {}
             if series == "KXNHLGAME":
                 team = CODES.get(ticker.rsplit("-", 1)[-1])
                 name = market.get("yes_sub_title")
                 if not name or not (market.get("rules_primary") or "").startswith(f"If {name} wins the "):
-                    row["reason"] = "unverified winner settlement rule"
+                    rows.append(dict(base_row, quote=quote, reason="unverified winner settlement rule"))
                     continue
-                forecast = dict(forecast, selection_ticker=ticker, contract_selection_team=team)
-            result = join_quote(contract, quote, forecast, fee_cents(metadata, ask) if ask else None)
-            row.update(result)
-            if result["status"] == "research_candidate" and forecast.get("starter_shadow"):
-                probabilities = forecast["starter_shadow"]
-                row["starter_input_types"] = {
-                    side: entry[0] for side, entry in probabilities.get("starter_inputs", {}).items()}
-                for variant in ("baseline", "adjusted"):
-                    values = probabilities[variant]
-                    paired = dict(forecast, p_home_win=values["moneyline"],
-                                  p_over_5_5=values["over_5_5"], p_over_6_5=values["over_6_5"])
-                    row.setdefault("starter_shadow", {})[variant] = join_quote(
-                        contract, quote, paired, result["fee_cents_per_contract"])
-            if bid is not None and ask is not None:
-                row["market_probability"] = (bid + ask) / 200
-    ranked = sorted((r for r in rows if r.get("expected_profit_usd", 0) > 0),
-                    key=lambda r: (-r["expected_profit_usd"], r["ticker"]))
+                selection = {"selection_ticker": ticker, "contract_selection_team": team}
+            chosen_forecast = dict(forecast, **selection)
+            for side, price in (("yes", yes_ask), ("no", no_ask)):
+                row = dict(base_row, forecast=chosen_forecast, quote=quote, contract_side=side)
+                result = join_quote(contract, quote, chosen_forecast,
+                                    fee_cents(metadata, price) if price is not None else None, side=side)
+                row.update(result)
+                if result["status"] == "research_candidate" and forecast.get("starter_shadow"):
+                    probabilities = forecast["starter_shadow"]
+                    row["starter_input_types"] = {
+                        team_side: entry[0]
+                        for team_side, entry in probabilities.get("starter_inputs", {}).items()}
+                    for variant in ("baseline", "adjusted"):
+                        values = probabilities[variant]
+                        paired = dict(chosen_forecast, p_home_win=values["moneyline"],
+                                      p_over_5_5=values["over_5_5"],
+                                      p_over_6_5=values["over_6_5"])
+                        row.setdefault("starter_shadow", {})[variant] = join_quote(
+                            contract, quote, paired, result["fee_cents_per_contract"], side=side)
+                if yes_bid is not None and yes_ask is not None:
+                    midpoint_yes = (yes_bid + yes_ask) / 200
+                    row["market_probability"] = midpoint_yes if side == "yes" else 1 - midpoint_yes
+                rows.append(row)
+    ranked = sorted((r for r in rows if r.get("status") == "research_candidate"
+                     and r.get("expected_profit_usd", 0) > 0),
+                    key=lambda r: (-r["expected_profit_usd"], r["ticker"], r["contract_side"]))
     for row in ranked[:5]:
         row["paper_selected"] = True
     for variant in ("baseline", "adjusted"):
-        shadow_ranked = sorted((r["starter_shadow"][variant] for r in rows
-                               if r.get("starter_shadow", {}).get(variant, {}).get("expected_profit_usd", 0) > 0),
-                               key=lambda r: (-r["expected_profit_usd"], r["ticker"]))
+        shadow_ranked = sorted(
+            (r["starter_shadow"][variant] for r in rows
+             if r.get("starter_shadow", {}).get(variant, {}).get("expected_profit_usd", 0) > 0),
+            key=lambda r: (-r["expected_profit_usd"], r["ticker"], r["contract_side"]))
         for candidate in shadow_ranked[:5]:
             candidate["paper_selected"] = True
     return {"captured_at_utc": utc_now(), "forecasts": forecasts, "rows": rows,
-            "top_five": [r["ticker"] for r in ranked[:5]],
-            "counts": dict(Counter(r.get("reason", "evaluated") for r in rows))}
+            "top_five": [{"ticker": r["ticker"], "side": r["contract_side"],
+                          "expected_profit_usd": r["expected_profit_usd"]}
+                         for r in ranked[:5]],
+            "counts": dict(Counter(r.get("reason", "evaluated")
+                                   for r in rows)),
+            "method": "Immutable pregame research snapshot; model/quote join on both YES and NO; one-contract taker-fee assumption; no execution"}
 
 
 def score(session, capture_data):
@@ -126,31 +144,41 @@ def score(session, capture_data):
     pnl = cost = 0
     settled_paper = 0
     counts = Counter()
+    fetched_markets = {}
     for row in capture_data["rows"]:
         if row.get("status") != "research_candidate":
             counts["excluded"] += 1
             continue
-        market = get(session, "/markets/" + row["ticker"])["market"]
+        ticker = row["ticker"]
+        if ticker not in fetched_markets:
+            fetched_markets[ticker] = get(session, "/markets/" + ticker)["market"]
+        market = fetched_markets[ticker]
         if market.get("status") != "finalized" or market.get("result") not in ("yes", "no"):
             counts["pending_or_nonbinary"] += 1
             continue
-        outcome = int(market["result"] == "yes")
+        contract_side = row.get("contract_side", "yes")
+        if contract_side not in ("yes", "no"):
+            counts["invalid_side"] += 1
+            continue
+        outcome = int(market["result"] == contract_side)
         counts["settled"] += 1
-        if "market_probability" in row:
+        # Count each contract once for probability calibration, not once per side.
+        if contract_side == "yes" and "market_probability" in row:
             pairs.append((row["model_probability"], row["market_probability"], outcome))
         shadow = row.get("starter_shadow", {})
         if all(shadow.get(k, {}).get("status") == "research_candidate" for k in ("baseline", "adjusted")):
             pair = (shadow["baseline"]["model_probability"], shadow["adjusted"]["model_probability"], outcome)
-            shadow_pairs.append(pair)
-            types = row.get("starter_input_types", {})
-            shadow_groups[" + ".join(sorted(types.values())) or "unspecified"].append(pair)
+            if contract_side == "yes":
+                shadow_pairs.append(pair)
+                types = row.get("starter_input_types", {})
+                shadow_groups[" + ".join(sorted(types.values())) or "unspecified"].append(pair)
             for variant, position in shadow.items():
                 if position.get("paper_selected"):
-                    entry = (position["yes_ask_cents"] + position["fee_cents_per_contract"]) / 100
+                    entry = (position.get("ask_cents", position.get("yes_ask_cents")) + position["fee_cents_per_contract"]) / 100
                     shadow_cost[variant] += entry
                     shadow_pnl[variant] += outcome - entry
         if row.get("paper_selected"):
-            entry = (row["yes_ask_cents"] + row["fee_cents_per_contract"]) / 100
+            entry = (row.get("ask_cents", row.get("yes_ask_cents")) + row["fee_cents_per_contract"]) / 100
             cost += entry
             pnl += outcome - entry
             settled_paper += 1
