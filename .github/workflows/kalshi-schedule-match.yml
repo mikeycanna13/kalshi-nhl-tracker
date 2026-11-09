@@ -1,0 +1,22 @@
+name: Validate Kalshi NHL schedule reconciliation
+on:
+  push:
+    branches: [research/nhl-model-benchmarks]
+    paths:
+      - research_kalshi_schedule_match.py
+      - research_kalshi_contract_match.py
+      - test_research_kalshi_schedule_match.py
+      - .github/workflows/kalshi-schedule-match.yml
+  workflow_dispatch:
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install requests
+      - run: python -m unittest -v test_research_kalshi_schedule_match.py test_research_kalshi_contract_match.py
+      - run: python research_kalshi_schedule_match.py
