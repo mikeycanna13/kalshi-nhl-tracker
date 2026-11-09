@@ -1,0 +1,57 @@
+name: NHL paper-trading outcome scoring
+on:
+  workflow_dispatch:
+    inputs:
+      capture_run_id:
+        description: 'Successful NHL pregame forecast/capture GitHub Actions run ID'
+        required: true
+        type: string
+permissions:
+  actions: read
+  contents: read
+jobs:
+  score-frozen-capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -r requirements.txt
+      - name: Download original frozen pregame evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CAPTURE_RUN_ID: ${{ inputs.capture_run_id }}
+        run: |
+          case "$CAPTURE_RUN_ID" in
+            *[!0-9]*|'') echo "Invalid run ID" >&2; exit 1 ;;
+          esac
+          mkdir -p inputs
+          gh run download "$CAPTURE_RUN_ID" -R "$GITHUB_REPOSITORY" -n nhl-pregame-research-forecasts -D inputs
+          test -s inputs/paper_capture.json
+      - name: Score only finalized Kalshi contracts using frozen prices
+        run: python research_kalshi_paper.py score inputs/paper_capture.json results/paper_score.json
+      - name: Archive scoring and original snapshot identity
+        run: |
+          python - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          evidence=Path("inputs/paper_capture.json").read_bytes()
+          score=json.loads(Path("results/paper_score.json").read_text())
+          Path("results/paper_score_provenance.json").write_text(json.dumps({
+              "source_run_id":os.environ.get("CAPTURE_RUN_ID"),
+              "capture_sha256":hashlib.sha256(evidence).hexdigest(),
+              "counts":score.get("counts",{}),
+              "note":"Research paper scoring, no trades or fills; rerun after all contracts finalize."
+          },indent=2))
+          PY
+        env:
+          CAPTURE_RUN_ID: ${{ inputs.capture_run_id }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nhl-paper-score-${{ inputs.capture_run_id }}
+          path: |
+            results/paper_score.json
+            results/paper_score_provenance.json
+          retention-days: 90
