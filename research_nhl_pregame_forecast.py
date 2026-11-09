@@ -54,7 +54,7 @@ def forecast(date, history_file="data/games.csv", out="results/pregame_forecasts
     shadow = {}
     starter_evidence = []
     if starter_file:
-        from advanced_stats import load_shots, normalize
+        from advanced_stats import ALIASES, load_shots, normalize
         from goalie_features import prior_goalie_features
         from starter_evidence import confirmed_pair
 
@@ -66,7 +66,9 @@ def forecast(date, history_file="data/games.csv", out="results/pregame_forecasts
         if any(pairs.values()):
             # The input uses full NHL game IDs, including the season prefix.
             shots = load_shots(shots_file)
-            raw_ids = next(c for c in ("game_id", "gameId", "gameID") if c in shots)
+            raw_ids = next(c for c in ALIASES["game_id"] if c in shots)
+            goalie_ids = next(c for c in ALIASES["goalie"] if c in shots)
+            shots[goalie_ids] = pd.to_numeric(shots[goalie_ids], errors="raise").astype("Int64")
             shots = shots[pd.to_numeric(shots[raw_ids], errors="raise").isin(games.game_id)]
             historical = prior_goalie_features(shots, game_dates=games)
             training = train.merge(historical, on="game_id", validate="one_to_one")
