@@ -40,14 +40,17 @@ def main():
         missing_ids=sorted(set(base.game_id)-set(advanced.game_id))
         if missing_ids:
             print("MISSING_XG_GAME_IDS="+json.dumps(missing_ids),flush=True)
-            raise ValueError(f"Missing MoneyPuck xG for {len(missing_ids)} scheduled games; no imputation")
+            if len(missing_ids)>1:
+                raise ValueError(f"Too many missing MoneyPuck games: {missing_ids}")
+            # Exclude the single shotless game symmetrically from both models.
+            base=base[~base.game_id.isin(missing_ids)].copy()
         df=base.merge(advanced.drop(columns=["date"]),on="game_id",how="inner",validate="one_to_one")
         if len(df)!=len(base):raise ValueError(f"Unmatched feature rows {len(df)}/{len(base)}")
         if df.isna().any().any():raise ValueError("Null values in merged feature table")
         xg=[c for c in advanced if c.endswith("_pg")]
         rng=np.random.default_rng(20261108)
         report={"protocol":"Expanding-window; 2023-24, 2024-25, 2025-26 held-out folds; historical pregame xG",
-                "shot_counts":counts,"xg_features":xg,"folds":[],"pooled":{}}
+                "shot_counts":counts,"xg_features":xg,"excluded_game_ids":missing_ids,"folds":[],"pooled":{}}
         pooled={market:{"y":[],"baseline":[],"baseline_plus_xg":[]} for market in MARKETS}
         for season in ["20232024","20242025","20252026"]:
             train=df[df.season<season]
