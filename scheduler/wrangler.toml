@@ -1,0 +1,10 @@
+name = "nhl-kalshi-free-research-trigger"
+main = "cloudflare_worker.mjs"
+compatibility_date = "2026-11-01"
+
+[triggers]
+crons = ["*/10 * * * *"]
+
+[vars]
+# Keep false until token and full research-branch capture are verified.
+ENABLE_TRIGGER_WRITES = "false"
