@@ -4,7 +4,9 @@ on:
     branches: [research/nhl-model-benchmarks]
     paths:
       - research_market_benchmark.py
+      - research_asof_audit.py
       - test_research_market_benchmark.py
+      - test_research_asof_audit.py
       - .github/workflows/market-benchmark-tests.yml
   workflow_dispatch:
 permissions:
@@ -19,4 +21,4 @@ jobs:
         with:
           python-version: '3.11'
       - name: Validate point-in-time and de-vig calculations on synthetic fixture
-        run: python -m unittest -v test_research_market_benchmark.py
+        run: python -m unittest -v test_research_market_benchmark.py test_research_asof_audit.py
