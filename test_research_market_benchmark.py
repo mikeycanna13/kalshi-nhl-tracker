@@ -1,6 +1,7 @@
 """Synthetic offline fixtures: no live or historical sportsbook prices are claimed."""
 import copy
 import unittest
+from datetime import datetime,timedelta,timezone
 from research_market_benchmark import (
     implied_probability, benchmark_game, compare_capture, score_settled, aware
 )
@@ -85,6 +86,30 @@ class BenchmarkTests(unittest.TestCase):
         summary=compare_capture(capture,self.snapshot)
         self.assertEqual(summary["comparison_count"],1)
         self.assertEqual(summary["paired_games"],1)
+    def test_paired_block_bootstrap_on_synthetic_final_outcomes(self):
+        base=datetime(2026,1,1,tzinfo=timezone.utc)
+        pairs=[]
+        outcomes=[]
+        for i in range(60):
+            start=(base+timedelta(days=i)).isoformat()
+            pairs.append({"status":"paired","game_id":i,"home_team":"NYR",
+                          "away_team":"BOS","scheduled_start_utc":start,
+                          "model_home_probability":0.8,
+                          "sportsbook_fair_home_probability":0.6})
+            outcomes.append({"game_id":i,"status":"final","winner":"NYR"})
+        result=score_settled({"comparisons":pairs},outcomes)
+        self.assertEqual(result["settled_games"],60)
+        self.assertLess(result["brier_delta_model_minus_sportsbook"],0)
+        self.assertLess(result["log_loss_delta_model_minus_sportsbook"],0)
+        self.assertIsNotNone(result["research_interval"])
+        self.assertLess(result["research_interval"]["brier_delta_95pct"][1],0)
+    def test_no_confidence_claim_from_small_sample(self):
+        pair=benchmark_game(self.forecast,self.quote,self.snapshot)
+        result=score_settled({"comparisons":[pair]},
+                             [{"game_id":2026020001,"status":"final","winner":"NYR"}])
+        self.assertIsNone(result["research_interval"])
+        self.assertEqual(result["interval_status"],"insufficient games/dates")
+
     def test_score_requires_verified_final(self):
         report={"comparisons":[benchmark_game(self.forecast,self.quote,self.snapshot)]}
         self.assertEqual(score_settled(report,[])["status"],"not_evaluable")
