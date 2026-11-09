@@ -6,11 +6,18 @@ on:
         description: 'NHL schedule date (YYYY-MM-DD); defaults to next UTC day'
         required: false
         type: string
+      collect_sportsbook:
+        description: 'OPT-IN: use configured THE_ODDS_API_KEY quota to fetch live sportsbook quotes'
+        required: false
+        default: false
+        type: boolean
   push:
     branches: [research/nhl-model-benchmarks]
     paths:
       - research_nhl_pregame_forecast.py
       - research_asof_audit.py
+      - research_market_benchmark.py
+      - research_sportsbook_capture.py
       - nhl_mvp.py
       - 'research_kalshi_*.py'
       - .github/workflows/nhl-pregame-forecast.yml
@@ -40,8 +47,18 @@ jobs:
         run: |
           if [ -z "$TARGET_DATE" ]; then TARGET_DATE=$(date -u -d '+1 day' +%F); fi
           python research_nhl_pregame_forecast.py --date "$TARGET_DATE"
+      - name: Optional live sportsbook snapshot (workflow_dispatch only; consumes provider quota)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.collect_sportsbook == true }}
+        env:
+          THE_ODDS_API_KEY: ${{ secrets.THE_ODDS_API_KEY }}
+        run: python research_sportsbook_capture.py --enable
+      - name: Explicitly record absent sportsbook data without network use
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.collect_sportsbook != true }}
+        run: python research_sportsbook_capture.py
       - name: Capture and rank live Kalshi research quotes
         run: python research_kalshi_paper.py capture results/pregame_forecasts.json results/paper_capture.json
+      - name: Benchmark model versus time-matched sportsbook consensus, if available
+        run: python research_market_benchmark.py --capture results/paper_capture.json --odds-snapshot results/sportsbook_snapshot.json
       - name: Audit forecast provenance and pregame quote timestamps
         run: python research_asof_audit.py results/paper_capture.json
       - name: Generate auditable candidate rankings
@@ -62,5 +79,7 @@ jobs:
             results/paper_report.csv
             results/paper_report.md
             results/asof_audit.json
+            results/sportsbook_snapshot.json
+            results/sportsbook_benchmark.json
           if-no-files-found: ignore
           retention-days: 90
