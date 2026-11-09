@@ -13,7 +13,9 @@ def parse_timestamp(value):
         raise ValueError("Timestamp has no UTC offset")
     return parsed
 
-def join_quote(contract, quote, forecast, fee_cents=None):
+def join_quote(contract, quote, forecast, fee_cents=None, side="yes"):
+    if side not in ("yes", "no"):
+        return {"status":"skipped","reason":"invalid contract side"}
     if contract.get("status")!="game_matched":
         return {"status":"skipped","reason":"unverified NHL game match"}
     if str(contract["nhl_game_id"])!=str(forecast.get("game_id")):
@@ -60,17 +62,21 @@ def join_quote(contract, quote, forecast, fee_cents=None):
         return {"status":"skipped","reason":"player probabilities not modeled"}
     if not isinstance(p,(float,int)) or not math.isfinite(p) or not 0<=p<=1:
         return {"status":"skipped","reason":"invalid model probability"}
-    price=quote.get("yes_ask_implied_cents")
+    if side == "no":
+        p = 1 - p
+    price=quote.get("yes_ask_implied_cents" if side == "yes" else "no_ask_implied_cents")
     if price is None or fee_cents is None:
         return {"status":"skipped","reason":"missing quote or explicit fee"}
     try:
-        quantity = float(quote.get("no_bid_qty") or 0)
+        quantity = float(quote.get("no_bid_qty" if side == "yes" else "yes_bid_qty") or 0)
         if not math.isfinite(quantity) or quantity < 1:
             return {"status":"skipped","reason":"no opposite-side liquidity"}
         ev=evaluate_quote(p,float(price),1,fee_cents)
+        ev["ask_cents"]=ev.pop("yes_ask_cents")
     except (ValueError,TypeError,OverflowError) as exc:
         return {"status":"skipped","reason":"invalid price/fee: "+str(exc)}
     return {"status":"research_candidate","ticker":contract["ticker"],
+            "contract_side":side,
             "nhl_game_id":contract["nhl_game_id"],"market_type":contract["market_type"],
             "model_probability":round(float(p),6),"quote_observed_at_utc":quote["observed_at_utc"],
             "quote_quantity":quantity,**ev,
