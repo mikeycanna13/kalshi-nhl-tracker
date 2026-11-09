@@ -1,6 +1,6 @@
 """Offline forward scoring tests: synthetic prices and outcomes only."""
 import unittest
-from research_forward_score import compute,primary_archives,outcome_cache
+from research_forward_score import compute,primary_archives,outcome_cache,per_window_archives,collection_window
 
 class ForwardScoreTests(unittest.TestCase):
     def make_archive(self,run_id="2",captured="2026-11-08T21:00:00Z"):
@@ -46,6 +46,18 @@ class ForwardScoreTests(unittest.TestCase):
         self.assertEqual(selected[0]["source_run_id"],"1")
         outcome=compute([b,a],{"WIN":{"status":"finalized","result":"yes"}})
         self.assertEqual(outcome["paper_positions_settled"],1)
+    def test_different_pregame_windows_are_distinct_research_samples(self):
+        early=self.make_archive("10","2026-11-10T15:00:00Z")
+        early["capture"]["scheduler_context"]={"window":"morning","target_date":"2026-11-10"}
+        late=self.make_archive("20","2026-11-10T23:45:00Z")
+        late["capture"]["scheduler_context"]={"window":"fifteen_minutes","target_date":"2026-11-10"}
+        windows=per_window_archives([late,early])
+        self.assertEqual(len(windows),2)
+        self.assertEqual({collection_window(a) for a in windows},{"morning","fifteen_minutes"})
+        # Overall comparison keeps only the first target-date selection.
+        self.assertEqual(compute([late,early],{"WIN":{"status":"finalized","result":"yes"}})["paper_positions_settled"],1)
+        self.assertEqual(compute([late],{"WIN":{"status":"finalized","result":"yes"}})["paper_positions_settled"],1)
+
     def test_nonbinary_settlement_not_counted(self):
         r=compute([self.make_archive()],{"WIN":{"status":"finalized","result":"void"}})
         self.assertEqual(r["paper_positions_settled"],0)
