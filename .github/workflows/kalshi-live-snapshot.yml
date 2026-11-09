@@ -1,0 +1,31 @@
+name: Kalshi NHL research live snapshot
+on:
+  workflow_dispatch:
+  push:
+    branches: [research/nhl-model-benchmarks]
+    paths:
+      - .github/workflows/kalshi-live-snapshot.yml
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        series: [KXNHLGAME, KXNHLTOTAL, KXNHLANYGOAL, KXNHLFIRSTGOAL, KXNHLPTS]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install requests
+      - name: Snapshot verified NHL series
+        run: python research_kalshi_snapshots.py --series "${{ matrix.series }}" --include-unclassified --max-markets 500 --out "data/${{ matrix.series }}.csv"
+      - name: Upload research snapshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nhl-quotes-${{ matrix.series }}
+          path: data/*.csv
+          if-no-files-found: ignore
+          retention-days: 14
