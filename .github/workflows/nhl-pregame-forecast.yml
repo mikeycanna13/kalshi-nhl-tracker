@@ -62,7 +62,7 @@ jobs:
       - name: Audit forecast provenance and pregame quote timestamps
         run: python research_asof_audit.py results/paper_capture.json
       - name: Generate auditable candidate rankings
-        run: python research_kalshi_report.py results/paper_capture.json
+        run: python research_kalshi_report.py results/paper_capture.json --benchmark results/sportsbook_benchmark.json --audit results/asof_audit.json
       - name: Save partial NHL schedule cache even on failed run
         if: always()
         uses: actions/cache/save@v4
