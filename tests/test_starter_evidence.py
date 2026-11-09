@@ -17,3 +17,17 @@ class StarterEvidenceTests(TestCase):
         self.assertIsNone(confirmed_pair(game, [home, dict(away, observed_at_utc="2026-11-10T23:00:00Z")], cutoff))
         self.assertIsNone(confirmed_pair(game, [home, away, dict(away, status="unconfirmed",
                          observed_at_utc="2026-11-10T21:30:00Z")], cutoff))
+
+    def test_one_confirmation_and_explicit_projection(self):
+        from starter_evidence import starter_options
+        cutoff = datetime.fromisoformat("2026-11-10T22:00:00+00:00")
+        game = {"game_id": 1, "home": "TOR", "away": "COL",
+                "start_time_utc": "2026-11-11T00:00:00Z"}
+        report = {"game_id": 1, "team": "TOR", "goalie_id": 1, "status": "confirmed",
+                  "source_url": "https://example.org/home", "observed_at_utc": "2026-11-10T21:00:00Z"}
+        self.assertEqual(starter_options(game, [report], cutoff), [("confirmed", {"1": 1.0}), None])
+        away = dict(report, team="COL", status="projected", candidates={"2": .7, "3": .3})
+        self.assertEqual(starter_options(game, [report, away], cutoff),
+                         [("confirmed", {"1": 1.0}), ("projected", {"2": .7, "3": .3})])
+        self.assertEqual(starter_options(game, [report, dict(away, candidates={"2": .7})], cutoff),
+                         [("confirmed", {"1": 1.0}), None])

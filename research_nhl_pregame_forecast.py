@@ -56,19 +56,20 @@ def forecast(date, history_file="data/games.csv", out="results/pregame_forecasts
     if starter_file:
         from advanced_stats import ALIASES, load_shots, normalize
         from goalie_features import prior_goalie_features
-        from starter_evidence import confirmed_pair
+        from starter_evidence import starter_options
 
         starter_evidence = json.loads(Path(starter_file).read_text(encoding="utf-8"))
         cutoff = dt.datetime.now(dt.timezone.utc)
-        pairs = {g["game_id"]: confirmed_pair(g, starter_evidence, cutoff)
+        options = {g["game_id"]: starter_options(g, starter_evidence, cutoff)
                  for g in scheduled
                  if dt.datetime.fromisoformat(g["start_time_utc"].replace("Z", "+00:00")) > cutoff}
-        if any(pairs.values()):
+        if any(any(pair) for pair in options.values()):
             # The input uses full NHL game IDs, including the season prefix.
             shots = load_shots(shots_file)
             raw_ids = next(c for c in ALIASES["game_id"] if c in shots)
             goalie_ids = next(c for c in ALIASES["goalie"] if c in shots)
             shots[goalie_ids] = pd.to_numeric(shots[goalie_ids], errors="raise").astype("Int64")
+            shots[goalie_ids] = shots[goalie_ids].where(shots[goalie_ids] > 0)
             shots = shots[pd.to_numeric(shots[raw_ids], errors="raise").isin(games.game_id)]
             historical = prior_goalie_features(shots, game_dates=games)
             training = train.merge(historical, on="game_id", validate="one_to_one")
@@ -79,6 +80,11 @@ def forecast(date, history_file="data/games.csv", out="results/pregame_forecasts
             goalie_rows = normalized.dropna(subset=["goalie"]).groupby("goalie")
             gsax = ((goalie_rows.xg.sum() - goalie_rows.goal.sum())
                     / (goalie_rows.game_id.nunique() + 12))
+            recent = normalized.dropna(subset=["goalie"])
+            recent = recent[recent.date == recent.groupby("opponent").date.transform("max")]
+            fallback = {}
+            for team, attempts in recent.groupby("opponent"):
+                fallback[team] = attempts.goalie.value_counts(normalize=True).to_dict()
             columns = FEATURES + ["home_goalie_gsax", "away_goalie_gsax"]
             models = {}
             for name, label in MARKETS.items():
@@ -86,15 +92,38 @@ def forecast(date, history_file="data/games.csv", out="results/pregame_forecasts
                     model = make_pipeline(StandardScaler(), LogisticRegression(C=.08, max_iter=1000))
                     model.fit(training[inputs].to_numpy(float), training[label].to_numpy(int))
                     models[name, kind] = model, inputs
-            for game_id, pair in pairs.items():
-                if not pair or any(goalie not in gsax for goalie in pair):
+            for game in scheduled:
+                game_id = game["game_id"]
+                pair = options.get(game_id)
+                if not pair or not any(pair):
                     continue
-                row = test[test.game_id == game_id].assign(home_goalie_gsax=gsax[pair[0]],
-                                                           away_goalie_gsax=gsax[pair[1]])
-                result = {"goalie_ids_home_away": pair, "training_games": len(training),
-                          "baseline": {}, "adjusted": {}}
+                home, away = [
+                    report or ("prior_game_mix", fallback.get(game[side], {}))
+                    for side, report in zip(("home", "away"), pair)
+                ]
+                if not home[1] or not away[1] or set(home[1]) & set(away[1]):
+                    continue
+                row = test[test.game_id == game_id]
+                scenarios = []
+                weights = []
+                for h_id, h_weight in home[1].items():
+                    for a_id, a_weight in away[1].items():
+                        scenarios.append(row.assign(home_goalie_gsax=gsax.get(h_id, 0.0),
+                                                    away_goalie_gsax=gsax.get(a_id, 0.0)))
+                        weights.append(h_weight * a_weight)
+                scenario_rows = pd.concat(scenarios, ignore_index=True)
+                result = {"training_games": len(training), "baseline": {}, "adjusted": {},
+                          "starter_inputs": {"home": home, "away": away},
+                          "unknown_goalie_weight": {
+                              side: sum(w for gid, w in entry[1].items() if gid not in gsax)
+                              for side, entry in (("home", home), ("away", away))}}
                 for (name, kind), (model, inputs) in models.items():
-                    result[kind][name] = float(model.predict_proba(row[inputs].to_numpy(float))[0, 1])
+                    if kind == "baseline":
+                        probability = model.predict_proba(row[inputs].to_numpy(float))[0, 1]
+                    else:
+                        predictions = model.predict_proba(scenario_rows[inputs].to_numpy(float))[:, 1]
+                        probability = np.average(predictions, weights=weights)
+                    result[kind][name] = float(probability)
                 shadow[game_id] = result
     generated = dt.datetime.now(dt.timezone.utc)
     records=[]

@@ -1,6 +1,6 @@
 """Capture live pregame evidence or score saved research snapshots. No orders."""
 import argparse
-from collections import Counter
+from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from decimal import Decimal, ROUND_CEILING
 import json
@@ -92,6 +92,8 @@ def capture(session, forecasts):
             row.update(result)
             if result["status"] == "research_candidate" and forecast.get("starter_shadow"):
                 probabilities = forecast["starter_shadow"]
+                row["starter_input_types"] = {
+                    side: entry[0] for side, entry in probabilities.get("starter_inputs", {}).items()}
                 for variant in ("baseline", "adjusted"):
                     values = probabilities[variant]
                     paired = dict(forecast, p_home_win=values["moneyline"],
@@ -118,6 +120,7 @@ def capture(session, forecasts):
 def score(session, capture_data):
     pairs = []
     shadow_pairs = []
+    shadow_groups = defaultdict(list)
     shadow_pnl = Counter()
     shadow_cost = Counter()
     pnl = cost = 0
@@ -137,8 +140,10 @@ def score(session, capture_data):
             pairs.append((row["model_probability"], row["market_probability"], outcome))
         shadow = row.get("starter_shadow", {})
         if all(shadow.get(k, {}).get("status") == "research_candidate" for k in ("baseline", "adjusted")):
-            shadow_pairs.append((shadow["baseline"]["model_probability"],
-                                 shadow["adjusted"]["model_probability"], outcome))
+            pair = (shadow["baseline"]["model_probability"], shadow["adjusted"]["model_probability"], outcome)
+            shadow_pairs.append(pair)
+            types = row.get("starter_input_types", {})
+            shadow_groups[" + ".join(sorted(types.values())) or "unspecified"].append(pair)
             for variant, position in shadow.items():
                 if position.get("paper_selected"):
                     entry = (position["yes_ask_cents"] + position["fee_cents_per_contract"]) / 100
@@ -159,6 +164,11 @@ def score(session, capture_data):
     return {"counts": dict(counts), "paired_brier_count": len(pairs),
             "starter_shadow": {
                 "settled_pairs": len(shadow_pairs),
+                "by_input_types": {
+                    kind: {"settled_pairs": len(group),
+                           "baseline_brier": sum((p-y)**2 for p, _, y in group) / len(group),
+                           "adjusted_brier": sum((p-y)**2 for _, p, y in group) / len(group)}
+                    for kind, group in shadow_groups.items()},
                 **{variant: {"brier": sum((p[index] - p[2])**2 for p in shadow_pairs) / len(shadow_pairs)
                              if shadow_pairs else None,
                              "paper_profit_usd": round(shadow_pnl[variant], 6) if shadow_cost[variant] else None,

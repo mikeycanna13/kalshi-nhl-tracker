@@ -68,13 +68,20 @@ Run the ordinary forecast with both `--starter-evidence` and `--starter-shots`
 to enable the research-only comparison. Evidence is a JSON array with
 `game_id`, `team` (NHL abbreviation), `goalie_id` (verified NHL player ID),
 `observed_at_utc`, `status` and `source_url`. Record the observation time when
-reading the source. Keep unconfirmed reports in the evidence. Both teams must
-have a current confirmation by the forecast cutoff to produce a paired row.
+reading the source. Keep unconfirmed reports in the evidence. One usable report is enough for a paired forecast. For a projection, set
+`status` to `projected` and provide `candidates` as an object mapping verified NHL
+goalie IDs to source-provided probabilities that sum to one. A confirmation
+uses probability one. A side without a usable report falls back to its most
+recent observed goalie mix. If neither side has a usable report, only the
+ordinary forecast is recorded. Keep separate pregame captures for projected,
+one-sided and confirmed checkpoints. Compare the two models within each
+capture using identical quotes and fees. Keep each game once per checkpoint
+in any cross-slate analysis.
 
 The shot input is a combined MoneyPuck CSV with full NHL game IDs. Use recent
 shot coverage when available. The paired models train on the same historical
 games. The adjusted model learns from the prior-game goalie pool proxy and
-substitutes the two confirmed goalies' prior ratings at forecast time. This
+averages forecast probabilities over the supported goalie combinations. This
 transfer is the hypothesis under test. The usual forecast remains the source
 for the existing paper study. Capture and score the same artifact as above
 to compare the shadow models on identical quotes and settled contracts.
